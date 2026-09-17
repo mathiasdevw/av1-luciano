@@ -1,0 +1,622 @@
+{
+  "lessons": [
+    {
+      "id": 0,
+      "title": "Anotações Spring",
+      "summary": "Reconheça quem recebe a requisição, registra objetos e trata erros.",
+      "body": [
+        "@SpringBootApplication combina configuração, autoconfiguração e busca de componentes a partir do pacote da aplicação. @Component registra um componente detectável; @Service expressa a camada de negócio; @Repository identifica componentes de persistência.",
+        "@RestController combina @Controller e @ResponseBody. @RequestMapping define o caminho base, enquanto @GetMapping e @PostMapping associam métodos a requisições. @RequestBody converte o corpo recebido; @PathVariable lê uma parte da URL.",
+        "@Configuration organiza configuração Java. @Bean registra no contêiner o objeto devolvido por um método. @RestControllerAdvice e @ExceptionHandler centralizam respostas de erro. As anotações @Schema, @Operation e @Tag documentam a API; não executam validação.",
+        "No controller de clientes, /api/v1/customer é combinado com /create e com o context-path /customer-app. A URL de cadastro é POST /customer-app/api/v1/customer/create."
+      ],
+      "code": "@RestController\n@RequestMapping(\"/api/v1/customer\")\n@RequiredArgsConstructor\npublic class CustomerController {\n    private final CustomerService customerService;\n    @PostMapping(\"/create\")\n    public ResponseEntity<ResponseDTO> create(\n            @RequestBody @Valid CustomerDTO customerDTO) {\n        customerService.save(customerDTO);\n        // resposta HTTP 201\n    }\n}",
+      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)",
+      "pitfall": "@RequiredArgsConstructor é Lombok; @Entity é Jakarta Persistence; @Schema é OpenAPI. Nem toda anotação é Spring."
+    },
+    {
+      "id": 1,
+      "title": "Arquitetura Spring Boot",
+      "summary": "Siga o caminho Controller → Service → Repository → banco.",
+      "body": [
+        "O controller trata HTTP, recebe DTOs e define respostas. O service coordena casos de uso e regras de negócio. O repository abstrai acesso aos dados. A entidade representa o modelo persistido e o mapper converte DTO e entidade.",
+        "No cadastro real: CustomerController.create chama CustomerService.save, que usa CustomerMapper.dtoToEntity e CustomerRepository.save. Redis e o cliente HTTP são integrações adicionais, não substitutos dessa divisão.",
+        "customer-ms e seller-ms têm aplicações, configurações e builds separados. Microsserviço é uma unidade de execução e responsabilidade; criar vários pacotes em uma única aplicação não basta para obter microsserviços.",
+        "O Product mantém sellerId como Long e ItemOrder mantém productId como Long. Um identificador escalar não cria navegação ORM. Entre serviços, dados normalmente são referenciados por identificadores e acessados por API ou eventos, sem join JPA entre bancos independentes."
+      ],
+      "code": "CustomerController.create(dto)\n    → CustomerService.save(dto)\n    → CustomerMapper.dtoToEntity(dto)\n    → CustomerRepository.save(customer)\n    → PostgreSQL",
+      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java",
+      "pitfall": "Não coloque regras de negócio no controller apenas porque ele já recebe a requisição."
+    },
+    {
+      "id": 2,
+      "title": "IoC e injeção de dependência",
+      "summary": "O contêiner cria objetos e entrega suas dependências.",
+      "body": [
+        "Inversão de Controle é delegar ao framework o controle da criação, configuração e ciclo de vida dos componentes. Injeção de dependência é a técnica de receber colaboradores externamente, em vez de construí-los com new dentro da classe.",
+        "CustomerService possui dependências final e @RequiredArgsConstructor. O Lombok gera o construtor e o Spring injeta os beans compatíveis. Com um único construtor, @Autowired pode ser omitido.",
+        "@Service permite que a classe seja descoberta; @RequiredArgsConstructor sozinho não registra bean. Para várias implementações da mesma interface, @Qualifier seleciona uma por qualificação e @Primary define uma candidata preferida.",
+        "Injeção por construtor torna dependências obrigatórias explícitas e facilita testes com substitutos. O escopo padrão singleton significa uma instância por definição de bean por contêiner, não uma instância universal em todos os microsserviços."
+      ],
+      "code": "@Service\n@RequiredArgsConstructor\npublic class CustomerService {\n    private final CustomerRepository customerRepository;\n    private final CustomerMapper customerMapper;\n    private final SellerServiceClient sellerServiceClient;\n}",
+      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)",
+      "pitfall": "Usar new CustomerService(...) fora do contêiner não garante interceptadores e demais serviços do Spring."
+    },
+    {
+      "id": 3,
+      "title": "JPA e Spring Data",
+      "summary": "Separe mapeamento, repositório e transação.",
+      "body": [
+        "JPA é a especificação de persistência; Hibernate é um provedor; Spring Data JPA fornece abstrações de repositório sobre JPA. @Entity, @Id, @GeneratedValue, @Column e os relacionamentos pertencem a Jakarta Persistence.",
+        "@Entity identifica uma entidade; @Table controla a tabela; @Id indica chave primária e @GeneratedValue define geração. @Column configura coluna. @MappedSuperclass permite herdar mapeamentos, sem criar por si só uma entidade consultável.",
+        "JpaRepository<Entidade, TipoDoId> fornece operações como save e findById. Métodos derivados, como findBySellerId, expressam consultas pelo nome. @Query permite declarar consultas e @Modifying identifica consultas de alteração declaradas; esses dois últimos são complementos didáticos.",
+        "@Transactional delimita operações transacionais. ProductService.save usa jakarta.transaction.Transactional; SellerService usa a variante Spring com readOnly = true. Uma transação do banco não torna a atualização no Redis automaticamente atômica. No modo padrão com proxy, chamada interna a outro método da mesma instância não passa pelo proxy."
+      ],
+      "code": "@Id\n@GeneratedValue(strategy = GenerationType.IDENTITY)\nprivate Long id;\n\n@Column(name = \"seller_id\", nullable = false)\nprivate Long sellerId;\n\n// Complemento de consulta:\n@Query(\"select p from Product p where p.sellerId = :id\")\nList<Product> buscar(@Param(\"id\") Long id);",
+      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java",
+      "pitfall": "nullable = false descreve mapeamento do banco. Não equivale a @NotBlank no DTO; com ddl-auto: none, confira a migration."
+    },
+    {
+      "id": 4,
+      "title": "Relacionamentos JPA",
+      "summary": "Identifique cardinalidade, lado dono e ciclo de vida.",
+      "body": [
+        "Customer tem @OneToOne(cascade = ALL) para Address. A migration cria customer.address_id com FK e UNIQUE, garantindo que um endereço não seja associado a vários clientes por essa coluna.",
+        "Order.items usa @OneToMany(mappedBy = \"order\", cascade = ALL, orphanRemoval = true). ItemOrder.order tem @ManyToOne e @JoinColumn(name = \"order_id\"). ItemOrder é o lado dono, pois armazena a FK; mappedBy é o nome do atributo Java do outro lado, não o nome da coluna.",
+        "cascade propaga operações de persistência. orphanRemoval remove um filho privado quando ele sai da associação. Ao montar uma associação bidirecional, mantenha coleção e referência ao pai coerentes. Fetch é outro assunto: por padrão, to-one é EAGER e to-many é LAZY; LAZY é uma indicação ao provedor.",
+        "@ManyToMany não aparece no projeto examinado. No complemento Produto–Categoria, uma tabela intermediária guarda duas FKs. O lado inverso usa mappedBy. Se a associação tiver quantidade ou preço, prefira uma entidade associativa, como ItemOrder, em vez de ManyToMany direto."
+      ],
+      "code": "// Projeto real\n@OneToMany(mappedBy = \"order\",\n    cascade = CascadeType.ALL, orphanRemoval = true)\nprivate List<ItemOrder> items;\n\n@ManyToOne\n@JoinColumn(name = \"order_id\")\nprivate Order order;\n\n// Complemento didático em Product\n@ManyToMany\n@JoinTable(name = \"product_category\",\n    joinColumns = @JoinColumn(name = \"product_id\"),\n    inverseJoinColumns = @JoinColumn(name = \"category_id\"))\nprivate Set<Category> categories;",
+      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java",
+      "pitfall": "CascadeType.ALL inclui REMOVE. Em ManyToMany, remover uma categoria compartilhada pode atingir outros produtos."
+    },
+    {
+      "id": 5,
+      "title": "Records e DTOs",
+      "summary": "Transporte dados sem expor o modelo persistido.",
+      "body": [
+        "DTO é um papel arquitetural: transportar dados entre camadas ou na API. Pode ser classe ou record. Record é um recurso da linguagem Java para agregados de dados; não é uma anotação Spring.",
+        "CustomerDTO é um record com name, email, cpf, phoneNumber e address. Java gera construtor canônico, acessores como name(), equals, hashCode e toString. Os componentes são finais; isso não torna profundamente imutáveis os objetos referenciados, como uma List mutável.",
+        "O mapper transforma DTO em entidade. Separar esses modelos evita acoplar o contrato HTTP às colunas, facilita validação e reduz exposição acidental de campos internos. Não se deve aceitar automaticamente todos os campos da entidade vindos do cliente.",
+        "Um record não vira entidade JPA só por representar dados. Entidades têm requisitos de identidade e ciclo de vida diferentes. Prefira records como DTOs no padrão usado nesta aula."
+      ],
+      "code": "public record CustomerDTO(\n    @NotBlank @Size(min = 2) String name,\n    @NotBlank @Email String email,\n    @NotBlank @CPF String cpf,\n    @NotBlank @Size(min = 11, max = 11) String phoneNumber,\n    AddressDTO address\n) {}\n// Acesso: customerDTO.name()",
+      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)",
+      "pitfall": "@Size(min = 11, max = 11) mede comprimento; não comprova que o telefone só tem dígitos."
+    },
+    {
+      "id": 6,
+      "title": "Validation",
+      "summary": "Valide a entrada e entenda o que cada regra cobre.",
+      "body": [
+        "Bean Validation declara restrições nos dados. @NotNull rejeita null; @NotEmpty rejeita null e vazio; @NotBlank, para texto, também rejeita conteúdo somente em branco. @Size restringe tamanho, @Positive exige valor maior que zero e @Email verifica formato.",
+        "CustomerController usa @RequestBody @Valid CustomerDTO para disparar validação do corpo. No DTO, @Email vem junto de @NotBlank: verificar formato não torna por si só o campo obrigatório. @CPF é uma extensão do Hibernate Validator, não da API padrão Jakarta.",
+        "Para validar restrições dentro de AddressDTO, adicione @Valid no componente address. Se endereço for obrigatório, acrescente @NotNull. O CustomerDTO original não tem @Valid nesse componente: o trecho abaixo é uma melhoria didática.",
+        "Validação de entrada não substitui regra de negócio nem UNIQUE do banco. Concorrência pode permitir duas requisições válidas que tentam salvar o mesmo CPF; a restrição de unicidade continua necessária."
+      ],
+      "code": "// Complemento ao CustomerDTO original\npublic record CadastroDTO(\n    @NotBlank @Email String email,\n    @NotNull @Valid AddressDTO address\n) {}\n\n// Trecho real do controller\ncreate(@RequestBody @Valid CustomerDTO customerDTO)",
+      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java",
+      "pitfall": "@Valid percorre objetos relacionados, mas não significa \"obrigatório\". Para proibir null, use @NotNull."
+    },
+    {
+      "id": 7,
+      "title": "Apache Kafka",
+      "summary": "Entenda eventos, partições, offsets e grupos.",
+      "body": [
+        "Kafka mantém eventos em tópicos divididos em partições. Producer publica, broker armazena e consumer lê. Offset identifica posição dentro de uma partição. Retenção controla por quanto tempo os registros permanecem, independentemente de já terem sido lidos.",
+        "Em grupos de consumidores convencionais, as partições são distribuídas entre integrantes do mesmo grupo. Grupos diferentes mantêm progresso independente. A ordenação é por partição; não existe ordem global automática entre todas as partições.",
+        "KafcaTopicConfig (grafia do arquivo original) declara um tópico com três partições e uma réplica. KafkaBaseConfig fornece ProducerFactory e KafkaTemplate. Não foram localizados send nem @KafkaListener implementando o ciclo completo; abaixo há um complemento de produtor e consumidor.",
+        "Com entrega ao menos uma vez, reprocessamento é possível. Faça o consumidor idempotente, por exemplo registrando eventId já processado. Não suponha que @Transactional do banco resolve automaticamente o envio de eventos: o padrão outbox é uma opção para coordenar isso."
+      ],
+      "code": "// Complemento didático\nkafkaTemplate.send(\"order-created\", orderId, evento);\n\n@KafkaListener(topics = \"order-created\", groupId = \"estoque\")\npublic void receber(OrderCreated evento) {\n    // ignorar eventId já processado\n    // atualizar estoque\n}\n// O nome do tópico deve coincidir com a configuração.",
+      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java",
+      "pitfall": "Três partições não são três cópias. replicas(1) significa fator de replicação 1."
+    },
+    {
+      "id": 8,
+      "title": "Flyway",
+      "summary": "Evolua o esquema com migrations versionadas.",
+      "body": [
+        "Flyway executa scripts de evolução do banco e registra histórico e checksums. Uma migration versionada segue uma convenção como V1__create_schema.sql: V, versão, dois sublinhados e descrição.",
+        "Os dois serviços possuem src/main/resources/db/migration. O application.yaml do customer habilita Flyway, validate-on-migrate e define ddl-auto: none. Portanto, o esquema deve acompanhar os scripts; mudar @Column sem migration não altera automaticamente a tabela.",
+        "Depois que V1 foi aplicada em ambiente compartilhado, uma alteração deve ir para V2, V3 e assim por diante. Editar V1 pode provocar divergência de checksum. validate detecta diferenças no histórico; migrate aplica migrations pendentes.",
+        "A migration de customer cria address, customer, orders e item_order. Ela explicita FK e UNIQUE para customer.address_id. baseline-on-migrate ajuda a adotar um esquema já existente nas condições apropriadas; não substitui a compreensão do histórico."
+      ],
+      "code": "-- Complemento: novo arquivo\n-- V2__add_customer_nickname.sql\nALTER TABLE customer ADD COLUMN nickname VARCHAR(80);\n\n# Configuração real\nspring:\n  jpa:\n    hibernate:\n      ddl-auto: none\n  flyway:\n    enabled: true\n    locations: classpath:db/migration",
+      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql",
+      "pitfall": "Não use repair como forma automática de esconder uma migration alterada; investigue a divergência."
+    },
+    {
+      "id": 9,
+      "title": "Docker e Compose",
+      "summary": "Empacote aplicações e conecte serviços.",
+      "body": [
+        "Imagem é o pacote usado para criar contêineres; contêiner é uma instância em execução. Dockerfile descreve a imagem. No projeto, FROM escolhe uma imagem Java, COPY inclui o JAR e ENTRYPOINT inicia java -jar.",
+        "O Dockerfile de customer espera build/libs/customer-ms-0.0.1-SNAPSHOT.jar. É necessário gerar esse arquivo antes de construir a imagem. O arquivo docker-compose.yml recebido está vazio; a configuração abaixo é um complemento didático de infraestrutura.",
+        "Docker Compose descreve múltiplos serviços, redes, volumes e variáveis. Dentro da mesma rede, a aplicação usa o nome do serviço como host, por exemplo redis ou db. localhost dentro de um contêiner aponta para o próprio contêiner.",
+        "ports mapeia porta do host para porta interna; volumes preservam dados além do ciclo de vida do contêiner. depends_on simples controla ordem de início, não prontidão; healthchecks com condition: service_healthy permitem aguardar um serviço saudável. docker compose down -v remove volumes e seus dados."
+      ],
+      "code": "# Complemento didático; não é o compose original\nservices:\n  redis:\n    image: redis:7-alpine\n    ports: [\"6379:6379\"]\n  db:\n    image: postgres:17-alpine\n    environment:\n      POSTGRES_DB: customer_db\n      POSTGRES_PASSWORD: estudo_local\n    volumes:\n      - pgdata:/var/lib/postgresql/data\nvolumes:\n  pgdata: {}",
+      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)",
+      "pitfall": "O exemplo sobe somente infraestrutura. Para executar a aplicação, compile o JAR e configure as conexões; a senha ilustrativa é apenas para laboratório."
+    },
+    {
+      "id": 10,
+      "title": "Redis",
+      "summary": "Leia o cache, trate ausência e cuide da consistência.",
+      "body": [
+        "Redis é um armazenamento de estruturas de dados em memória, com opções de persistência. No projeto funciona como cache de produtos por vendedor. Um hash reúne campos sob uma chave como seller:7:products; não é uma tabela SQL.",
+        "ProductCacheReader primeiro consulta o hash. Se não houver dados, chama SellerServiceClient, popula o Redis e retorna o resultado. Esse fluxo é cache-aside. O TTL é de 30 dias; expiração limita tempo de vida, mas não garante atualização imediata.",
+        "ProductCacheWriter salva o Product em product:<id>; o reader converte valores para ProductDTO. Esse contrato merece revisão, inclusive serialização e metadado sellerName, antes de tratar a integração como pronta. O writer registra falha e continua; o reader relança RuntimeException, então indisponibilidade do Redis não é tratada como cache miss.",
+        "Cache pode ficar desatualizado após alterações no banco. Defina atualização ou invalidação e uma política de fallback. @Cacheable e @CacheEvict são alternativas declarativas do Spring Cache; aqui o professor usa RedisTemplate diretamente."
+      ],
+      "code": "String key = String.format(\"seller:%d:products\", sellerId);\nSellerProductsDTO cached = readFromCache(key);\nif (Objects.nonNull(cached)) return cached;\nvar products = sellerServiceClient.getProductBySellerId(sellerId);\npopulateRedis(key, products);\nreturn products;\n// populateRedis define TTL de 30 dias.",
+      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java",
+      "pitfall": "Cache miss é ausência de dado. Falha de conexão é erro; o código precisa decidir explicitamente como reagir."
+    }
+  ],
+  "questions": [
+    {
+      "id": 1,
+      "topic": 0,
+      "prompt": "O que @RestController acrescenta a @Controller?",
+      "options": [
+        "Validação automática de todas as regras",
+        "Serialização do retorno no corpo HTTP",
+        "Criação das tabelas",
+        "Cache automático"
+      ],
+      "answer": 1,
+      "explanation": "@RestController inclui a semântica de @ResponseBody. Validação e cache exigem configuração própria.",
+      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)"
+    },
+    {
+      "id": 2,
+      "topic": 0,
+      "prompt": "Qual anotação registra o retorno de um método como bean?",
+      "options": [
+        "@Bean",
+        "@Entity",
+        "@Schema",
+        "@Column"
+      ],
+      "answer": 0,
+      "explanation": "@Bean é usada em métodos de configuração para fornecer objetos gerenciados pelo Spring.",
+      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)"
+    },
+    {
+      "id": 3,
+      "topic": 0,
+      "prompt": "Qual URL corresponde ao cadastro no CustomerController?",
+      "options": [
+        "GET /customer/create",
+        "POST /api/v1/create",
+        "POST /customer-app/api/v1/customer/create",
+        "POST /seller-app/customer"
+      ],
+      "answer": 2,
+      "explanation": "Some context-path, @RequestMapping da classe e @PostMapping do método.",
+      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)"
+    },
+    {
+      "id": 4,
+      "topic": 1,
+      "prompt": "Onde deve ficar uma regra que verifica se o vendedor existe antes de salvar produto?",
+      "options": [
+        "No CSS",
+        "No DTO exclusivamente",
+        "No Dockerfile",
+        "No service"
+      ],
+      "answer": 3,
+      "explanation": "ProductService verifica o vendedor e coordena a persistência: essa é uma responsabilidade de negócio.",
+      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java"
+    },
+    {
+      "id": 5,
+      "topic": 1,
+      "prompt": "Product.sellerId é um Long com @Column. Isso cria @ManyToOne?",
+      "options": [
+        "Não, é apenas um campo escalar",
+        "Sim, pelo sufixo Id",
+        "Sim, pelo nome seller",
+        "Somente se usar Redis"
+      ],
+      "answer": 0,
+      "explanation": "Uma associação ORM precisa de mapeamento de relacionamento; o nome do campo não o cria.",
+      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java"
+    },
+    {
+      "id": 6,
+      "topic": 1,
+      "prompt": "Qual sequência descreve o cadastro de cliente?",
+      "options": [
+        "Repository → Controller → DTO",
+        "Controller → Service → Mapper/Repository",
+        "Redis → Docker → Controller",
+        "Entity → Kafka → HTML"
+      ],
+      "answer": 1,
+      "explanation": "O controller recebe a chamada; o service converte o DTO e usa o repository.",
+      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java"
+    },
+    {
+      "id": 7,
+      "topic": 2,
+      "prompt": "Quem efetivamente injeta CustomerRepository no service?",
+      "options": [
+        "Lombok",
+        "PostgreSQL",
+        "O contêiner Spring",
+        "O record"
+      ],
+      "answer": 2,
+      "explanation": "Lombok gera o construtor; Spring resolve os beans e chama o construtor.",
+      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)"
+    },
+    {
+      "id": 8,
+      "topic": 2,
+      "prompt": "Há um único construtor com dependências. @Autowired é obrigatório?",
+      "options": [
+        "Não",
+        "Sempre",
+        "Apenas com final",
+        "Apenas em controllers"
+      ],
+      "answer": 0,
+      "explanation": "O Spring pode usar o único construtor sem @Autowired.",
+      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)"
+    },
+    {
+      "id": 9,
+      "topic": 2,
+      "prompt": "Qual exemplo representa injeção de dependência?",
+      "options": [
+        "Criar repository com new em cada método",
+        "Receber repository no construtor",
+        "Criar uma tabela SQL",
+        "Escrever @Column"
+      ],
+      "answer": 1,
+      "explanation": "A dependência vem de fora da classe, mantendo criação e uso separados.",
+      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)"
+    },
+    {
+      "id": 10,
+      "topic": 3,
+      "prompt": "Qual é a relação correta entre as tecnologias?",
+      "options": [
+        "JPA é o banco e Redis o ORM",
+        "Hibernate é a especificação",
+        "Spring Data substitui o banco",
+        "JPA é especificação; Hibernate é provedor"
+      ],
+      "answer": 3,
+      "explanation": "Spring Data JPA oferece repositórios, enquanto Hibernate implementa a especificação JPA.",
+      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java"
+    },
+    {
+      "id": 11,
+      "topic": 3,
+      "prompt": "O que @GeneratedValue(strategy = IDENTITY) indica?",
+      "options": [
+        "Geração do identificador pelo mecanismo identity do banco",
+        "Chave Redis",
+        "Conversão em DTO",
+        "Geração de JWT"
+      ],
+      "answer": 0,
+      "explanation": "A estratégia IDENTITY utiliza uma coluna com geração de identidade pelo banco.",
+      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java"
+    },
+    {
+      "id": 12,
+      "topic": 3,
+      "prompt": "A transação de ProductService garante atomicidade entre PostgreSQL e Redis?",
+      "options": [
+        "Sim, por causa de @Service",
+        "Não, isso exige coordenação adicional",
+        "Sim, com @Data",
+        "Somente pelo Docker"
+      ],
+      "answer": 1,
+      "explanation": "A transação relacional não engloba automaticamente a escrita no cache.",
+      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java"
+    },
+    {
+      "id": 13,
+      "topic": 4,
+      "prompt": "Em mappedBy = \"order\", order representa o quê?",
+      "options": [
+        "A tabela orders",
+        "A coluna order_id",
+        "O atributo Java em ItemOrder",
+        "O nome da migration"
+      ],
+      "answer": 2,
+      "explanation": "mappedBy aponta para o atributo que possui a associação do outro lado.",
+      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java"
+    },
+    {
+      "id": 14,
+      "topic": 4,
+      "prompt": "Quem é dono do relacionamento Order–ItemOrder no projeto?",
+      "options": [
+        "ItemOrder, que tem a FK order_id",
+        "Order, porque tem uma lista",
+        "Os dois são donos",
+        "O DTO"
+      ],
+      "answer": 0,
+      "explanation": "@JoinColumn em ItemOrder indica o lado dono da associação.",
+      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java"
+    },
+    {
+      "id": 15,
+      "topic": 4,
+      "prompt": "Um vínculo Produto–Categoria precisa guardar prioridade por produto. O que é mais adequado?",
+      "options": [
+        "Um Long solto sem tabela",
+        "Uma entidade associativa com esse atributo",
+        "@OneToOne sempre",
+        "@ManyToMany sem nenhum atributo adicional"
+      ],
+      "answer": 1,
+      "explanation": "A entidade associativa permite representar dados próprios do vínculo.",
+      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java"
+    },
+    {
+      "id": 16,
+      "topic": 5,
+      "prompt": "Como acessar o nome em CustomerDTO record?",
+      "options": [
+        "dto.getName() obrigatoriamente",
+        "dto.name()",
+        "dto.name = valor",
+        "dto.getRecord()"
+      ],
+      "answer": 1,
+      "explanation": "O acessor gerado tem o mesmo nome do componente: name().",
+      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)"
+    },
+    {
+      "id": 17,
+      "topic": 5,
+      "prompt": "Um record com List<String> garante que a lista nunca muda?",
+      "options": [
+        "Sim, sempre",
+        "Sim, se for DTO",
+        "Não, a imutabilidade é superficial",
+        "Só com @Entity"
+      ],
+      "answer": 2,
+      "explanation": "A referência é final, mas a lista referenciada ainda pode ser mutável.",
+      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)"
+    },
+    {
+      "id": 18,
+      "topic": 5,
+      "prompt": "Todo DTO precisa ser record?",
+      "options": [
+        "Não, DTO é um papel e pode ser classe",
+        "Sim, é regra do Spring",
+        "Sim, por exigência do JPA",
+        "Só se usar Kafka"
+      ],
+      "answer": 0,
+      "explanation": "DTO descreve a função do objeto, não uma única forma de implementá-lo.",
+      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)"
+    },
+    {
+      "id": 19,
+      "topic": 6,
+      "prompt": "Qual regra rejeita uma String contendo apenas espaços?",
+      "options": [
+        "@NotNull",
+        "@Positive",
+        "@NotBlank",
+        "@Schema"
+      ],
+      "answer": 2,
+      "explanation": "@NotBlank exige texto não nulo com ao menos um caractere não branco.",
+      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java"
+    },
+    {
+      "id": 20,
+      "topic": 6,
+      "prompt": "Como validar campos internos de AddressDTO e exigir endereço?",
+      "options": [
+        "Somente @Schema",
+        "@NotNull @Valid no componente address",
+        "Somente @Column",
+        "@Autowired"
+      ],
+      "answer": 1,
+      "explanation": "@NotNull exige o objeto, e @Valid ativa validação em cascata.",
+      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java"
+    },
+    {
+      "id": 21,
+      "topic": 6,
+      "prompt": "O telefone tem @Size(min=11,max=11). Onze letras passam nessa regra isolada?",
+      "options": [
+        "Sim, ela só mede tamanho",
+        "Não, Size valida dígitos",
+        "Não, record impede",
+        "Somente no Redis"
+      ],
+      "answer": 0,
+      "explanation": "Use também uma regra de formato, como @Pattern, para exigir dígitos.",
+      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java"
+    },
+    {
+      "id": 22,
+      "topic": 7,
+      "prompt": "No tópico da aula, partitions(3) e replicas(1) significam:",
+      "options": [
+        "Uma partição com três cópias",
+        "Três partições com fator de replicação um",
+        "Três bancos relacionais",
+        "Três grupos obrigatórios"
+      ],
+      "answer": 1,
+      "explanation": "Particionamento distribui o log; replicação define quantas cópias de cada partição existem.",
+      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java"
+    },
+    {
+      "id": 23,
+      "topic": 7,
+      "prompt": "Onde Kafka garante ordenação de registros?",
+      "options": [
+        "Em todas as aplicações",
+        "Em todos os tópicos juntos",
+        "Dentro de cada partição",
+        "Entre todos os grupos"
+      ],
+      "answer": 2,
+      "explanation": "Partições são logs ordenados independentes.",
+      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java"
+    },
+    {
+      "id": 24,
+      "topic": 7,
+      "prompt": "Por que um consumidor deve ser idempotente?",
+      "options": [
+        "Porque um evento pode ser reprocessado",
+        "Para apagar o tópico",
+        "Para dispensar offsets",
+        "Para criar DTO automaticamente"
+      ],
+      "answer": 0,
+      "explanation": "Executar o mesmo evento novamente não deve duplicar efeitos, como baixar o estoque duas vezes.",
+      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java"
+    },
+    {
+      "id": 25,
+      "topic": 8,
+      "prompt": "Qual nome segue a convenção padrão de migration versionada?",
+      "options": [
+        "V2_add.sql",
+        "V2__add_nickname.sql",
+        "migration-final.sql",
+        "2V__schema.txt"
+      ],
+      "answer": 1,
+      "explanation": "A separação padrão entre versão e descrição usa dois sublinhados.",
+      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql"
+    },
+    {
+      "id": 26,
+      "topic": 8,
+      "prompt": "V1 já foi aplicada. Como adicionar uma coluna?",
+      "options": [
+        "Editar V1 e ignorar histórico",
+        "Apagar o banco sempre",
+        "Criar V2 com ALTER TABLE",
+        "Alterar apenas o DTO"
+      ],
+      "answer": 2,
+      "explanation": "Uma nova migration preserva o histórico já aplicado.",
+      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql"
+    },
+    {
+      "id": 27,
+      "topic": 8,
+      "prompt": "Com ddl-auto: none, alterar @Column atualiza automaticamente a tabela?",
+      "options": [
+        "Não, o esquema precisa da migration correspondente",
+        "Sim",
+        "Só se for record",
+        "Só pelo Redis"
+      ],
+      "answer": 0,
+      "explanation": "Hibernate não está configurado para atualizar o esquema nessa aplicação.",
+      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql"
+    },
+    {
+      "id": 28,
+      "topic": 9,
+      "prompt": "O que localhost representa dentro de um contêiner?",
+      "options": [
+        "Sempre o computador host",
+        "Todos os serviços",
+        "O próprio contêiner",
+        "O serviço PostgreSQL"
+      ],
+      "answer": 2,
+      "explanation": "Para outro serviço Compose, normalmente se usa o nome desse serviço na rede.",
+      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)"
+    },
+    {
+      "id": 29,
+      "topic": 9,
+      "prompt": "Qual recurso preserva os dados do PostgreSQL ao recriar o contêiner?",
+      "options": [
+        "@Entity",
+        "Um volume",
+        "O nome da imagem",
+        "@Valid"
+      ],
+      "answer": 1,
+      "explanation": "Um volume guarda dados fora da camada gravável descartável do contêiner.",
+      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)"
+    },
+    {
+      "id": 30,
+      "topic": 9,
+      "prompt": "depends_on simples garante que o banco aceita conexões?",
+      "options": [
+        "Sim, sempre",
+        "Só com Java",
+        "Sim, se publicar a porta",
+        "Não; prontidão exige healthcheck ou outra estratégia"
+      ],
+      "answer": 3,
+      "explanation": "Iniciar um processo não significa que ele já esteja pronto para atender.",
+      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)"
+    },
+    {
+      "id": 31,
+      "topic": 10,
+      "prompt": "O que ocorre em um cache miss no ProductCacheReader?",
+      "options": [
+        "Apaga o PostgreSQL",
+        "Consulta o seller-service e popula o Redis",
+        "Cria um tópico Kafka",
+        "Retorna sempre erro 404"
+      ],
+      "answer": 1,
+      "explanation": "O reader busca a fonte por HTTP quando o hash está vazio.",
+      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java"
+    },
+    {
+      "id": 32,
+      "topic": 10,
+      "prompt": "TTL de 30 dias garante que produtos nunca ficam desatualizados?",
+      "options": [
+        "Sim",
+        "Sim, com hash",
+        "Não",
+        "Apenas com Docker"
+      ],
+      "answer": 2,
+      "explanation": "TTL limita validade temporal, mas não sincroniza automaticamente mudanças da fonte.",
+      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java"
+    },
+    {
+      "id": 33,
+      "topic": 10,
+      "prompt": "Redis indisponível é necessariamente tratado como cache miss no código real?",
+      "options": [
+        "Não, o reader relança a exceção",
+        "Sim, sempre",
+        "Sim, pelo @Component",
+        "Somente quando o DTO é record"
+      ],
+      "answer": 0,
+      "explanation": "readFromCache captura RuntimeException, registra log e lança outra RuntimeException.",
+      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java"
+    }
+  ]
+}

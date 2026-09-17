@@ -1,0 +1,2 @@
+import {database} from '@/lib/database';
+export async function GET(){try{const r=await database().prepare('SELECT nickname,score,finished FROM attempts WHERE finished IS NOT NULL ORDER BY score DESC,finished ASC LIMIT 50').all();return Response.json({rows:r.results},{headers:{'Cache-Control':'no-store'}});}catch(e){console.error(e);return Response.json({error:'Não foi possível carregar o ranking. Tente novamente.'},{status:503});}}
