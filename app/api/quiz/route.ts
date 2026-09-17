@@ -1,8 +1,10 @@
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {database,databaseConfigured} from '@/lib/database';
 import {createExam,grade,validateAnswers,BANK_VERSION} from '@/lib/quiz-core';
+import {readLimitedBody,BodyTooLarge} from '@/lib/http';
 import data from '@/lib/content/study.json';
 export const runtime='nodejs';
+export const maxDuration=30;
 export const dynamic='force-dynamic';
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 function validIds(ids:unknown):ids is number[]{return Array.isArray(ids)&&ids.length===25&&new Set(ids).size===25&&ids.every(id=>Number.isInteger(id)&&data.questions.some(q=>q.id===id));}
@@ -10,11 +12,11 @@ export async function POST(request:Request){
  try{
   const origin=request.headers.get('origin');
   if(origin&&new URL(origin).origin!==new URL(request.url).origin)return json({error:'Origem inválida.'},403);
-  if(Number(request.headers.get('content-length')||0)>12000)return json({error:'Solicitação muito grande.'},413);
-  const raw=await request.text();if(raw.length>12000)return json({error:'Solicitação muito grande.'},413);
+  let raw;try{raw=await readLimitedBody(request);}catch(e){if(e instanceof BodyTooLarge)return json({error:'Solicitação muito grande.'},413);throw e;}
   let p;try{p=JSON.parse(raw);}catch{return json({error:'Dados inválidos.'},400);}
   if(!p||typeof p!=='object')return json({error:'Dados inválidos.'},400);
   const ranked=databaseConfigured();
+  if(!ranked&&process.env.VERCEL_ENV==='production')return json({error:'O serviço está temporariamente indisponível.'},503);
   if(p.action==='start'){
    const nickname=typeof p.nickname==='string'?p.nickname.trim():'';
    if(nickname.length<2||nickname.length>24||/[\u0000-\u001f]/.test(nickname))return json({error:'Use um apelido de 2 a 24 caracteres.'},400);
@@ -27,7 +29,7 @@ export async function POST(request:Request){
    if(p.mode!=='practice'||!validIds(p.ids))return json({error:'Tentativa inválida. Inicie um novo simulado.'},400);
    const review=grade(data.questions,p.ids,p.answers);return json({score:review.filter(q=>q.correct).length,total:25,review,saved:false,mode:'practice'});
   }
-  if(typeof p.id!=='string'||!/^[0-9a-f-]{36}$/.test(p.id)||typeof p.secret!=='string'||!/^[0-9a-f]{64}$/.test(p.secret))return json({error:'Tentativa inválida.'},400);
+  if(typeof p.id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(p.id)||typeof p.secret!=='string'||!/^[0-9a-f]{64}$/.test(p.secret))return json({error:'Tentativa inválida.'},400);
   const sql=database();const hash=createHash('sha256').update(p.secret).digest('hex');
   const rows=await sql`SELECT * FROM av1_attempts WHERE id=${p.id}::uuid AND secret_hash=${hash}`;const row=rows[0];
   if(!row)return json({error:'Tentativa não encontrada.'},404);

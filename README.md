@@ -81,4 +81,10 @@ A compilação usa Webpack. Testes verificam sorteios com cobertura dos 11 assun
 
 Cada questão tem `id` único, `topic` entre 0 e 10, `prompt`, `code`, quatro `options`, `answer` de 0 a 3, `explanation`, `difficulty` e `kind`. Após mudanças incompatíveis em IDs/gabaritos, atualize `BANK_VERSION` em `lib/quiz-core.ts` para separar rankings e invalidar tentativas antigas ainda abertas.
 
-A configuração inicial do banco não é um gerenciador de migrations. Para evoluções futuras, acrescente scripts SQL versionados e aplique-os deliberadamente; não reescreva a tabela para perder resultados.
+As migrations SQL são versionadas em `database/`. `npm run db:setup` registra checksums, aplica apenas arquivos novos e serializa execuções concorrentes. Não altere migrations já aplicadas; acrescente uma nova.
+
+## Produção
+
+O arquivo `vercel.json` configura o build de deploy. `npm run build:vercel` prepara o banco e compila. Em Production, a conexão é obrigatória; em Preview sem banco, o modo treino permanece disponível. Configure `DATABASE_URL` e, opcionalmente, `DATABASE_MIGRATION_URL` na Vercel. O endpoint `/api/health` verifica o banco sem revelar credenciais.
+
+Para conferir o código, execute `npm run verify`. Para testar a integração com seu PostgreSQL de desenvolvimento, mantenha o servidor ativo e execute `npm run test:db`. O roteiro completo para Neon ou outro PostgreSQL hospedado está em `DEPLOY_VERCEL.md`.

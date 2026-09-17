@@ -15,6 +15,15 @@ async function post(body) {
   return { status: response.status, data: await response.json() };
 }
 try {
+  const health = await fetch(`${base}/api/health`);
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { status: 'ok' });
+  assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(health.headers.get('cache-control'), 'no-store');
+  const oversized = await post({ action: 'start', nickname: 'a'.repeat(13000) });
+  assert.equal(oversized.status, 413);
+  const invalidId = await post({ action: 'finish', id: '-'.repeat(36), secret: '0'.repeat(64), answers: Array(25).fill(0) });
+  assert.equal(invalidId.status, 400);
   const started = await post({ action: 'start', nickname: 'Teste integração' });
   assert.equal(started.status, 200);
   assert.equal(started.data.mode, 'ranked');

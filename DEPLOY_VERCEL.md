@@ -1,77 +1,70 @@
-# Colocar o Spring Lab no GitHub e na Vercel
+# Produção: Vercel + PostgreSQL hospedado
 
-## 1. Preparar o repositório
+O computador pode ficar desligado: a Vercel executa o site e o provedor PostgreSQL mantém os resultados. O banco não precisa ser aberto ao público; somente o servidor do aplicativo usa a credencial privada.
 
-Extraia o ZIP. A pasta `spring-lab` contém o aplicativo; é nela que está `package.json`.
+## Caminho sugerido: Neon Free
 
-Crie um repositório **privado** no GitHub e envie o conteúdo dessa pasta. Inclua arquivos ocultos como `.gitignore` e `.env.example`. Não envie `.env.local`, credenciais, `node_modules` ou `.next`.
+1. Crie sua conta e um projeto PostgreSQL no [Neon](https://neon.com/). Escolha o plano Free e uma região próxima da região das funções da Vercel.
+2. Em Connect, copie a URL com **Connection pooling** para `DATABASE_URL`. Mantenha os parâmetros de conexão/TLS fornecidos pelo painel. O host pooled normalmente contém `-pooler`.
+3. Opcionalmente, copie a conexão direta, sem pooling, para `DATABASE_MIGRATION_URL`. Ela será usada somente para preparar as tabelas; se omitida, o comando usa `DATABASE_URL`.
+4. Na Vercel, importe `mathiasdevw/av1-luciano`, selecione Next.js e adicione essas variáveis ao ambiente **Production** antes do deploy. Root Directory é a raiz do repositório.
+5. Faça o deploy. `vercel.json` seleciona `npm run build:vercel`, que prepara as tabelas e compila o site. Não é necessário copiar SQL manualmente.
+6. Abra `/api/health`: com a proteção de acesso satisfeita, deve responder `{"status":"ok"}`. Conclua um simulado e confira o ranking em outro navegador autorizado.
 
-Se usar Git, siga os comandos exibidos pelo GitHub para conectar a pasta ao seu novo repositório. Nenhum endereço de repositório está fixado neste projeto.
+A conta e o banco hospedado ainda precisam ser criados pelo proprietário. Nenhuma credencial de produção acompanha o projeto. O plano gratuito tem limites de armazenamento e processamento; acompanhe o consumo no painel. O recurso pode suspender processamento quando ocioso e retomá-lo ao receber uma nova conexão, adicionando latência ao primeiro acesso. Não há promessa de disponibilidade ilimitada.
 
-## 2. Preparar o banco compartilhado
+O cliente continua compatível com PostgreSQL padrão. Você pode usar outro provedor, incluindo Supabase com sua conexão PostgreSQL apropriada para serverless. Não use a chave pública da API Supabase como `DATABASE_URL`.
 
-Crie um banco PostgreSQL em um servidor ou provedor acessível pela Vercel. O aplicativo usa o protocolo PostgreSQL padrão e não depende de Neon. Copie a URL de conexão e mantenha os parâmetros TLS indicados pelo provedor. Se houver pooler, use a conexão recomendada pelo provedor para aplicações serverless.
-
-No editor SQL do provedor ou em um cliente PostgreSQL, execute o conteúdo de:
-
-```text
-database/001_initial.sql
-```
-
-Alternativa local: copie `.env.example` para `.env.local`, preencha `DATABASE_URL` e execute `npm ci` seguido de `npm run db:setup`. Faça isso antes de iniciar a primeira tentativa com ranking.
-
-Sem banco configurado, o site abre em modo treino. Se a variável existir mas a conexão ou a tabela estiver incorreta, o sistema mostra erro, em vez de fingir que salvou resultados.
-
-O arquivo `compose.yaml` serve para desenvolvimento local e mantém os dados em volume. Ele não roda dentro da Vercel. Não coloque `localhost` ou `127.0.0.1` na conexão de produção.
-
-## 3. Importar na Vercel
-
-Importe o repositório GitHub. Use estas configurações:
+## Configuração da Vercel
 
 | Campo | Valor |
 | --- | --- |
-| Framework Preset | Next.js |
-| Root Directory | A pasta que contém `package.json` |
-| Install Command | `npm ci` |
-| Build Command | `npm run build` |
-| Output Directory | Padrão do Next.js; deixe sem alteração |
+| Framework | Next.js |
+| Root Directory | Raiz do repositório |
 | Node.js | 22.x |
+| Install Command | `npm ci` |
+| Build Command | `npm run build:vercel` (já definido em vercel.json) |
+| Output Directory | Padrão do Next.js |
+| DATABASE_URL | URL do PostgreSQL hospedado; preferencialmente pooled |
+| DATABASE_MIGRATION_URL | Opcional: URL direta para migrations |
 
-Em Environment Variables, adicione `DATABASE_URL` com a conexão PostgreSQL para o ambiente desejado. Não use o prefixo `NEXT_PUBLIC_`. O aplicativo também aceita `POSTGRES_URL` se esse for o nome criado pela integração; `DATABASE_URL` tem prioridade.
+Não configure exportação estática. Não use `NEXT_PUBLIC_` nas credenciais. Não use `localhost`/`127.0.0.1` na conexão de produção: eles não apontam para seu computador. O Compose é apenas para desenvolvimento local.
 
-Se configurar o banco depois do primeiro deploy, faça um novo deploy para carregar a variável. Separe bancos/branches de Preview e Production caso queira evitar misturar testes com resultados da turma.
+A variável `POSTGRES_URL` é aceita como alternativa a `DATABASE_URL`. Alterou variáveis? Faça um novo deploy. Se já tinha sobrescrito o Build Command no painel, use o comando novo acima.
 
-## 4. Manter o acesso privado
+## Migrations e preservação dos resultados
 
-O pedido atual é manter o acesso privado. O aplicativo não inclui autenticação de usuários: a privacidade deve ser aplicada pela hospedagem antes de compartilhar o endereço.
+O comando lê `database/NNN_descricao.sql`, aplica somente arquivos novos e registra checksum em `av1_schema_migrations`. Deploys concorrentes são serializados com um lock transacional. Uma falha desfaz a transação e impede a nova versão de ser publicada.
 
-Em **Settings → Deployment Protection**, selecione **Vercel Authentication** com o escopo **All Deployments**, para cobrir também os domínios de produção. A [documentação oficial](https://vercel.com/docs/deployment-protection) lista essa cobertura em todos os planos. O acesso fica limitado a usuários Vercel com a permissão adequada. A opção Standard Protection deixa os domínios de produção desprotegidos.
+Não edite uma migration já aplicada: acrescente um novo arquivo numerado, mantendo nomes com zeros à esquerda para ordenação. Faça alterações compatíveis com a versão anterior, que pode continuar atendendo enquanto o deploy compila. Exemplo: adicionar coluna opcional é preferível a renomear ou excluir uma coluna usada pelo código antigo.
 
-Um repositório privado e a instrução `noindex` do site não tornam a página privada. Para liberar futuramente à turma, defina quem poderá acessar antes de compartilhar.
+O primeiro deploy reconhece instalações antigas aplicando o script inicial idempotente. As tabelas e tentativas existentes são preservadas. O usuário da conexão de migrations precisa ter permissão para criar tabelas; se usar uma conexão de runtime com permissões menores, configure `DATABASE_MIGRATION_URL` separadamente.
 
-Confira o acesso em uma janela sem sessão: ela deve pedir autenticação ou negar entrada. Só depois compartilhe com as pessoas autorizadas. Não há publicação automática incluída no ZIP.
+Use um banco/branch separado para Preview. Preview sem banco oferece modo treino; Production sem conexão interrompe o build. O build local `npm run build` continua sem aplicar migrations automaticamente.
 
-## 5. Conferir o resultado
+## Acesso da turma
 
-1. Abra o site e inicie um simulado com um apelido de teste.
-2. Responda às 25 questões. A tela final deve dizer que a tentativa foi salva no ranking.
-3. Abra Ranking em outro navegador autorizado e confira o mesmo resultado.
-4. Recarregue e confira que o resultado concluído permanece.
-5. Teste os flashcards e os 11 módulos também no celular.
+Enquanto quiser manter privado, configure **Settings → Deployment Protection → Vercel Authentication → All Deployments**. Autorize os participantes conforme as opções da sua conta. Standard Protection não cobre os domínios de produção.
 
-A versão local foi validada com PostgreSQL real em Docker, incluindo a persistência de respostas e resultados. A conexão com o banco de produção depende da sua conexão e da execução do SQL inicial.
+Um repositório privado ou `noindex` não restringe o site. `public: false` em vercel.json protege a exposição de logs/código do deploy, não funciona como login. O aplicativo não tem cadastro individual: apelidos servem apenas para o ranking informal de estudo. Antes de disponibilizar publicamente, configure limites de requisições no Firewall da Vercel conforme o tráfego esperado.
 
-## Se aparecer algum problema
+## Operação e conferência
 
-- **Ranking aguardando ativação:** falta `DATABASE_URL`/`POSTGRES_URL` no ambiente do deploy.
-- **Erro ao começar ou finalizar:** confira a conexão e se `av1_attempts` foi criada no mesmo banco indicado pela variável. Consulte os logs privados da Vercel.
-- **Resultado não aparece:** tentativas do modo treino e tentativas incompletas não entram no ranking.
-- **Build com pasta errada:** Root Directory precisa apontar para a pasta que contém `package.json`.
-- **Env alterada:** faça um novo deploy.
+- `/api/health` verifica a conexão e a existência da tabela, sem mostrar host, usuário ou senha. Retorna 503 quando indisponível. Não faça consultas constantes para manter o plano gratuito acordado.
+- Cada instância do aplicativo reutiliza no máximo uma conexão. O pooler do provedor ajuda a absorver múltiplas instâncias da Vercel.
+- Respostas e segredos de tentativa não são publicados pelo ranking. Reenvios de uma conclusão devolvem o resultado original.
+- A API limita corpos a 12 KB e retorna erros genéricos. Credenciais ficam fora do repositório.
+- Os dados concluídos ficam no PostgreSQL. Progresso de uma prova ainda aberta fica na memória da página e se perde ao recarregar.
+- Faça backup pelo provedor ou com ferramentas PostgreSQL antes de alterações estruturais. Retenção e recuperação dependem do plano contratado.
 
-## Documentação oficial
+## Validação realizada
 
-- [Next.js na Vercel](https://vercel.com/docs/frameworks/full-stack/nextjs)
-- [PostgreSQL e integrações](https://vercel.com/docs/postgres)
-- [Deployment Protection](https://vercel.com/docs/deployment-protection)
-- [Cliente PostgreSQL usado no projeto](https://github.com/porsager/postgres)
+Testes de conteúdo/correção, limite de requisições, lint, build de produção e integração com PostgreSQL real local. Migrations foram reaplicadas sem duplicação. O teste de integração verifica persistência, ranking, segredo e idempotência. A conexão hospedada e o deploy final precisam ser conferidos depois que você configurar a conta e as variáveis.
+
+## Referências oficiais
+
+- [Neon: plano gratuito](https://neon.com/blog/how-to-make-the-most-of-neons-free-plan)
+- [Neon: connection pooling](https://neon.com/docs/connect/connection-pooling)
+- [Supabase: planos](https://supabase.com/pricing)
+- [Vercel: configuração do projeto](https://vercel.com/docs/project-configuration)
+- [Vercel: proteção de acesso](https://vercel.com/docs/deployment-protection)

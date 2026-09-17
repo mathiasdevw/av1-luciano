@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "db:setup": "node --env-file-if-exists=.env.local scripts/setup-db.mjs",
-    "test:db": "node --env-file-if-exists=.env.local scripts/test-database.mjs"
+    "test:db": "node --env-file-if-exists=.env.local scripts/test-database.mjs",
+    "build:vercel": "node scripts/prepare-deploy.mjs && npm run build",
+    "verify": "npm run lint && npm test && npm run build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
