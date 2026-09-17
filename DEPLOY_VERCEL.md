@@ -46,7 +46,7 @@ Use um banco/branch separado para Preview. Preview sem banco oferece modo treino
 
 Enquanto quiser manter privado, configure **Settings → Deployment Protection → Vercel Authentication → All Deployments**. Autorize os participantes conforme as opções da sua conta. Standard Protection não cobre os domínios de produção.
 
-Um repositório privado ou `noindex` não restringe o site. `public: false` em vercel.json protege a exposição de logs/código do deploy, não funciona como login. O aplicativo não tem cadastro individual: apelidos servem apenas para o ranking informal de estudo. Antes de disponibilizar publicamente, configure limites de requisições no Firewall da Vercel conforme o tráfego esperado.
+Um repositório privado ou `noindex` não restringe o site. A proteção de acesso é configurada no painel da Vercel. O aplicativo não tem cadastro individual: apelidos servem apenas para o ranking informal de estudo. Antes de disponibilizar publicamente, configure limites de requisições no Firewall da Vercel conforme o tráfego esperado.
 
 ## Operação e conferência
 
