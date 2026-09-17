@@ -88,3 +88,9 @@ As migrations SQL são versionadas em `database/`. `npm run db:setup` registra c
 O arquivo `vercel.json` configura o build de deploy. `npm run build:vercel` prepara o banco e compila. Em Production, a conexão é obrigatória; em Preview sem banco, o modo treino permanece disponível. Configure `DATABASE_URL` e, opcionalmente, `DATABASE_MIGRATION_URL` na Vercel. O endpoint `/api/health` verifica o banco sem revelar credenciais.
 
 Para conferir o código, execute `npm run verify`. Para testar a integração com seu PostgreSQL de desenvolvimento, mantenha o servidor ativo e execute `npm run test:db`. O roteiro completo para Neon ou outro PostgreSQL hospedado está em `DEPLOY_VERCEL.md`.
+
+## Zerar o ranking antes de abrir para a turma
+
+Para apagar todas as tentativas do banco apontado por `DATABASE_URL`, execute `npm run db:reset -- --confirm`. Confira se a conexão é do banco local ou hospedado antes de usar. O comando preserva questões e migrations, mas apaga notas e respostas. Ele nunca roda automaticamente durante o deploy.
+
+Outra opção é executar `TRUNCATE TABLE av1_attempts;` no editor SQL do banco hospedado correto.
