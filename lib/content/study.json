@@ -3,620 +3,1072 @@
     {
       "id": 0,
       "title": "Anotações Spring",
-      "summary": "Reconheça quem recebe a requisição, registra objetos e trata erros.",
+      "summary": "Entenda o papel de cada anotação e reconheça a camada em que ela atua.",
       "body": [
-        "@SpringBootApplication combina configuração, autoconfiguração e busca de componentes a partir do pacote da aplicação. @Component registra um componente detectável; @Service expressa a camada de negócio; @Repository identifica componentes de persistência.",
-        "@RestController combina @Controller e @ResponseBody. @RequestMapping define o caminho base, enquanto @GetMapping e @PostMapping associam métodos a requisições. @RequestBody converte o corpo recebido; @PathVariable lê uma parte da URL.",
-        "@Configuration organiza configuração Java. @Bean registra no contêiner o objeto devolvido por um método. @RestControllerAdvice e @ExceptionHandler centralizam respostas de erro. As anotações @Schema, @Operation e @Tag documentam a API; não executam validação.",
-        "No controller de clientes, /api/v1/customer é combinado com /create e com o context-path /customer-app. A URL de cadastro é POST /customer-app/api/v1/customer/create."
+        "@SpringBootApplication reúne configuração, autoconfiguração e component scan. Por padrão, a busca parte do pacote da classe principal e de seus subpacotes. Uma classe fora dessa árvore pode precisar de configuração explícita para ser encontrada.",
+        "@Component registra um componente detectável. @Service comunica responsabilidade de negócio. @Repository marca componentes de persistência. @RestController combina @Controller e @ResponseBody: o retorno é escrito no corpo HTTP, usando um conversor adequado, em vez de ser tratado como nome de uma view.",
+        "@RequestMapping define um caminho base. @GetMapping, @PostMapping, @PutMapping e @DeleteMapping associam verbo e caminho ao método. @RequestBody lê o corpo; @PathVariable lê um segmento do caminho; @RequestParam lê parâmetros da requisição.",
+        "@Configuration organiza configuração Java; @Bean registra o objeto devolvido por um método. @RestControllerAdvice com @ExceptionHandler centraliza tratamento de exceções. @Schema e @Operation documentam a API: não substituem validação nem implementam regras."
       ],
-      "code": "@RestController\n@RequestMapping(\"/api/v1/customer\")\n@RequiredArgsConstructor\npublic class CustomerController {\n    private final CustomerService customerService;\n    @PostMapping(\"/create\")\n    public ResponseEntity<ResponseDTO> create(\n            @RequestBody @Valid CustomerDTO customerDTO) {\n        customerService.save(customerDTO);\n        // resposta HTTP 201\n    }\n}",
-      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)",
-      "pitfall": "@RequiredArgsConstructor é Lombok; @Entity é Jakarta Persistence; @Schema é OpenAPI. Nem toda anotação é Spring."
+      "code": "@RestController\n@RequestMapping(\"/produtos\")\nclass ProdutoController {\n    @GetMapping(\"/{id}\")\n    String buscar(@PathVariable Long id) {\n        return \"Produto \" + id;\n    }\n}\n// GET /produtos/7 → corpo: Produto 7",
+      "pitfall": "Nem toda anotação é Spring: @Entity é JPA, @NotBlank é Validation e @RequiredArgsConstructor é Lombok.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 1,
       "title": "Arquitetura Spring Boot",
-      "summary": "Siga o caminho Controller → Service → Repository → banco.",
+      "summary": "Separe responsabilidades e acompanhe o caminho de uma requisição.",
       "body": [
-        "O controller trata HTTP, recebe DTOs e define respostas. O service coordena casos de uso e regras de negócio. O repository abstrai acesso aos dados. A entidade representa o modelo persistido e o mapper converte DTO e entidade.",
-        "No cadastro real: CustomerController.create chama CustomerService.save, que usa CustomerMapper.dtoToEntity e CustomerRepository.save. Redis e o cliente HTTP são integrações adicionais, não substitutos dessa divisão.",
-        "customer-ms e seller-ms têm aplicações, configurações e builds separados. Microsserviço é uma unidade de execução e responsabilidade; criar vários pacotes em uma única aplicação não basta para obter microsserviços.",
-        "O Product mantém sellerId como Long e ItemOrder mantém productId como Long. Um identificador escalar não cria navegação ORM. Entre serviços, dados normalmente são referenciados por identificadores e acessados por API ou eventos, sem join JPA entre bancos independentes."
+        "O controller traduz HTTP para chamadas da aplicação e define status e respostas. O service executa casos de uso e coordena regras de negócio. O repository abstrai persistência. O mapper converte representações, como DTO e entidade.",
+        "Uma requisição de criação recebe um DTO, valida sua forma, executa regras no service, persiste por meio de um repository e retorna um DTO de saída. Uma regra como impedir um pedido sem estoque pertence ao negócio; uma restrição como email malformado pode ser verificada na entrada.",
+        "Arquitetura em camadas é uma organização interna. Microsserviços são unidades de execução e implantação com responsabilidades delimitadas. Um monólito também pode ter camadas bem organizadas. Muitos pacotes não tornam uma aplicação um conjunto de microsserviços.",
+        "Um campo Long clienteId é um identificador escalar. Ele não cria uma associação JPA por causa do nome. Entre serviços com bancos independentes, use contratos de API ou eventos; não suponha que um @ManyToOne pode navegar por outro banco remoto."
       ],
-      "code": "CustomerController.create(dto)\n    → CustomerService.save(dto)\n    → CustomerMapper.dtoToEntity(dto)\n    → CustomerRepository.save(customer)\n    → PostgreSQL",
-      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java",
-      "pitfall": "Não coloque regras de negócio no controller apenas porque ele já recebe a requisição."
+      "code": "HTTP POST /pedidos\n    → PedidoController recebe PedidoDTO\n    → PedidoService verifica estoque\n    → PedidoRepository persiste Pedido\n    → banco de dados\n    → resposta HTTP com PedidoRespostaDTO",
+      "pitfall": "DTO, entidade, service e repository são responsabilidades diferentes. Evite expor a entidade inteira como contrato público.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 2,
       "title": "IoC e injeção de dependência",
-      "summary": "O contêiner cria objetos e entrega suas dependências.",
+      "summary": "Reconheça quem cria os objetos e quem fornece seus colaboradores.",
       "body": [
-        "Inversão de Controle é delegar ao framework o controle da criação, configuração e ciclo de vida dos componentes. Injeção de dependência é a técnica de receber colaboradores externamente, em vez de construí-los com new dentro da classe.",
-        "CustomerService possui dependências final e @RequiredArgsConstructor. O Lombok gera o construtor e o Spring injeta os beans compatíveis. Com um único construtor, @Autowired pode ser omitido.",
-        "@Service permite que a classe seja descoberta; @RequiredArgsConstructor sozinho não registra bean. Para várias implementações da mesma interface, @Qualifier seleciona uma por qualificação e @Primary define uma candidata preferida.",
-        "Injeção por construtor torna dependências obrigatórias explícitas e facilita testes com substitutos. O escopo padrão singleton significa uma instância por definição de bean por contêiner, não uma instância universal em todos os microsserviços."
+        "Inversão de Controle é delegar ao framework a criação, configuração e gestão dos componentes. Injeção de dependência é receber colaboradores de fora da classe, em vez de construí-los internamente. O ApplicationContext é o contêiner que administra os beans.",
+        "Na injeção por construtor, dependências obrigatórias ficam explícitas. Quando uma classe gerenciada tem um único construtor, @Autowired pode ser omitido. Em testes, o mesmo construtor permite fornecer um substituto do colaborador.",
+        "@RequiredArgsConstructor, do Lombok, gera construtor para campos final não inicializados e campos @NonNull elegíveis. Lombok não realiza a injeção: o Spring usa o construtor gerado. A classe ainda precisa ser registrada, por exemplo com @Service ou por um método @Bean.",
+        "Se duas implementações forem candidatas para a mesma dependência e não houver outro critério de resolução, a injeção é ambígua. @Qualifier seleciona uma candidata e @Primary indica preferência. O escopo singleton padrão significa uma instância por definição de bean em cada contêiner."
       ],
-      "code": "@Service\n@RequiredArgsConstructor\npublic class CustomerService {\n    private final CustomerRepository customerRepository;\n    private final CustomerMapper customerMapper;\n    private final SellerServiceClient sellerServiceClient;\n}",
-      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)",
-      "pitfall": "Usar new CustomerService(...) fora do contêiner não garante interceptadores e demais serviços do Spring."
+      "code": "@Service\nclass PedidoService {\n    private final PedidoRepository repository;\n\n    PedidoService(PedidoRepository repository) {\n        this.repository = repository;\n    }\n}",
+      "pitfall": "new PedidoService(...) cria uma instância comum. Isso não ativa automaticamente proxies de transação ou outros recursos do contêiner.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 3,
       "title": "JPA e Spring Data",
-      "summary": "Separe mapeamento, repositório e transação.",
+      "summary": "Diferencie especificação, implementação, mapeamento e repositório.",
       "body": [
-        "JPA é a especificação de persistência; Hibernate é um provedor; Spring Data JPA fornece abstrações de repositório sobre JPA. @Entity, @Id, @GeneratedValue, @Column e os relacionamentos pertencem a Jakarta Persistence.",
-        "@Entity identifica uma entidade; @Table controla a tabela; @Id indica chave primária e @GeneratedValue define geração. @Column configura coluna. @MappedSuperclass permite herdar mapeamentos, sem criar por si só uma entidade consultável.",
-        "JpaRepository<Entidade, TipoDoId> fornece operações como save e findById. Métodos derivados, como findBySellerId, expressam consultas pelo nome. @Query permite declarar consultas e @Modifying identifica consultas de alteração declaradas; esses dois últimos são complementos didáticos.",
-        "@Transactional delimita operações transacionais. ProductService.save usa jakarta.transaction.Transactional; SellerService usa a variante Spring com readOnly = true. Uma transação do banco não torna a atualização no Redis automaticamente atômica. No modo padrão com proxy, chamada interna a outro método da mesma instância não passa pelo proxy."
+        "JPA é a especificação de persistência. Hibernate é uma implementação. Spring Data JPA oferece repositórios que simplificam o acesso a JPA. O banco relacional é outro componente: ele armazena os dados.",
+        "@Entity identifica a entidade; @Table define a tabela; @Id marca o identificador; @GeneratedValue escolhe geração; @Column configura a coluna. @MappedSuperclass compartilha mapeamentos por herança sem criar, por si só, uma entidade consultável. @Enumerated(EnumType.STRING) persiste o nome textual do enum.",
+        "JpaRepository<Produto, Long> fornece save, findById e outras operações. Métodos derivados usam nomes de propriedades, como findByNome. Em @Query, JPQL usa nomes de entidades e atributos Java; nativeQuery = true usa SQL do banco. @Modifying é usado para consultas de alteração declaradas com @Query.",
+        "@Transactional delimita uma transação. No comportamento padrão do Spring, RuntimeException e Error provocam rollback; checked exceptions exigem configuração quando se deseja rollback. No modo padrão com proxy, uma chamada interna na mesma instância não atravessa o proxy. Uma transação relacional não inclui automaticamente Redis ou Kafka."
       ],
-      "code": "@Id\n@GeneratedValue(strategy = GenerationType.IDENTITY)\nprivate Long id;\n\n@Column(name = \"seller_id\", nullable = false)\nprivate Long sellerId;\n\n// Complemento de consulta:\n@Query(\"select p from Product p where p.sellerId = :id\")\nList<Product> buscar(@Param(\"id\") Long id);",
-      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java",
-      "pitfall": "nullable = false descreve mapeamento do banco. Não equivale a @NotBlank no DTO; com ddl-auto: none, confira a migration."
+      "code": "interface ProdutoRepository extends JpaRepository<Produto, Long> {\n    @Query(\"select p from Produto p where p.preco > :min\")\n    List<Produto> acimaDe(@Param(\"min\") BigDecimal minimo);\n}\n// Produto e preco são nomes do modelo Java, não da tabela SQL.",
+      "pitfall": "@Column(nullable = false) não é @NotBlank. Com geração de esquema desativada, as constraints precisam estar no SQL de migration.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 4,
       "title": "Relacionamentos JPA",
-      "summary": "Identifique cardinalidade, lado dono e ciclo de vida.",
+      "summary": "Descubra a cardinalidade, o lado dono e os efeitos das operações.",
       "body": [
-        "Customer tem @OneToOne(cascade = ALL) para Address. A migration cria customer.address_id com FK e UNIQUE, garantindo que um endereço não seja associado a vários clientes por essa coluna.",
-        "Order.items usa @OneToMany(mappedBy = \"order\", cascade = ALL, orphanRemoval = true). ItemOrder.order tem @ManyToOne e @JoinColumn(name = \"order_id\"). ItemOrder é o lado dono, pois armazena a FK; mappedBy é o nome do atributo Java do outro lado, não o nome da coluna.",
-        "cascade propaga operações de persistência. orphanRemoval remove um filho privado quando ele sai da associação. Ao montar uma associação bidirecional, mantenha coleção e referência ao pai coerentes. Fetch é outro assunto: por padrão, to-one é EAGER e to-many é LAZY; LAZY é uma indicação ao provedor.",
-        "@ManyToMany não aparece no projeto examinado. No complemento Produto–Categoria, uma tabela intermediária guarda duas FKs. O lado inverso usa mappedBy. Se a associação tiver quantidade ou preço, prefira uma entidade associativa, como ItemOrder, em vez de ManyToMany direto."
+        "@OneToOne representa uma relação um para um. Uma FK com unicidade costuma concretizar essa relação no banco. @OneToMany e @ManyToOne representam os dois sentidos de uma relação um para muitos.",
+        "Em uma associação bidirecional, mappedBy aponta para o atributo Java do lado dono. Na relação Pedido–Item abaixo, Item.pedido possui a FK e é o lado dono. Ao montar os objetos, atualize a coleção e a referência ao pai para manter os dois lados coerentes.",
+        "cascade propaga operações de persistência, como PERSIST e REMOVE. orphanRemoval remove um filho privado quando ele é desvinculado. fetch define política de carregamento, não exclusão: to-one é EAGER por padrão; to-many é LAZY por padrão. LAZY é uma indicação ao provedor, e o acesso fora de contexto pode falhar se o dado não foi carregado.",
+        "@ManyToMany geralmente usa uma tabela intermediária e duas FKs. No lado inverso, use mappedBy com o atributo dono. Quando o vínculo tem dados próprios, como quantidade, nota ou data de matrícula, transforme-o em uma entidade associativa."
       ],
-      "code": "// Projeto real\n@OneToMany(mappedBy = \"order\",\n    cascade = CascadeType.ALL, orphanRemoval = true)\nprivate List<ItemOrder> items;\n\n@ManyToOne\n@JoinColumn(name = \"order_id\")\nprivate Order order;\n\n// Complemento didático em Product\n@ManyToMany\n@JoinTable(name = \"product_category\",\n    joinColumns = @JoinColumn(name = \"product_id\"),\n    inverseJoinColumns = @JoinColumn(name = \"category_id\"))\nprivate Set<Category> categories;",
-      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java",
-      "pitfall": "CascadeType.ALL inclui REMOVE. Em ManyToMany, remover uma categoria compartilhada pode atingir outros produtos."
+      "code": "// Em Pedido\n@OneToMany(mappedBy = \"pedido\", cascade = CascadeType.ALL,\n           orphanRemoval = true)\nprivate List<Item> itens;\n\n// Em Item\n@ManyToOne\n@JoinColumn(name = \"pedido_id\")\nprivate Pedido pedido;\n\n// Produto–Categoria, no lado dono\n@ManyToMany\n@JoinTable(name = \"produto_categoria\")\nprivate Set<Categoria> categorias;",
+      "pitfall": "CascadeType.ALL inclui REMOVE. Em ManyToMany, propagar remoção a uma entidade compartilhada pode atingir outros vínculos.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 5,
       "title": "Records e DTOs",
-      "summary": "Transporte dados sem expor o modelo persistido.",
+      "summary": "Separe o recurso da linguagem do papel arquitetural.",
       "body": [
-        "DTO é um papel arquitetural: transportar dados entre camadas ou na API. Pode ser classe ou record. Record é um recurso da linguagem Java para agregados de dados; não é uma anotação Spring.",
-        "CustomerDTO é um record com name, email, cpf, phoneNumber e address. Java gera construtor canônico, acessores como name(), equals, hashCode e toString. Os componentes são finais; isso não torna profundamente imutáveis os objetos referenciados, como uma List mutável.",
-        "O mapper transforma DTO em entidade. Separar esses modelos evita acoplar o contrato HTTP às colunas, facilita validação e reduz exposição acidental de campos internos. Não se deve aceitar automaticamente todos os campos da entidade vindos do cliente.",
-        "Um record não vira entidade JPA só por representar dados. Entidades têm requisitos de identidade e ciclo de vida diferentes. Prefira records como DTOs no padrão usado nesta aula."
+        "DTO é um objeto usado para transportar dados. Ele pode ser implementado como classe ou record. Record é um recurso do Java para declarar agregados de dados com menos código; ele não pertence ao Spring.",
+        "Um record gera construtor canônico, acessores com o nome dos componentes, equals, hashCode e toString. Para o componente nome, use nome(), não getNome(). O tipo record é final e seus componentes são finais.",
+        "Essa imutabilidade é superficial. Um record com uma List pode referenciar uma lista mutável. Quando o contrato exigir proteção, faça cópia defensiva, como List.copyOf, e considere também a mutabilidade dos elementos.",
+        "DTOs evitam acoplar o contrato HTTP ao modelo persistido e ajudam a limitar campos de entrada e saída. Um mapper converte representações. Entidades possuem identidade e ciclo de vida próprios; records são adequados aos DTOs desta revisão."
       ],
-      "code": "public record CustomerDTO(\n    @NotBlank @Size(min = 2) String name,\n    @NotBlank @Email String email,\n    @NotBlank @CPF String cpf,\n    @NotBlank @Size(min = 11, max = 11) String phoneNumber,\n    AddressDTO address\n) {}\n// Acesso: customerDTO.name()",
-      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)",
-      "pitfall": "@Size(min = 11, max = 11) mede comprimento; não comprova que o telefone só tem dígitos."
+      "code": "record TurmaDTO(List<String> alunos) {}\n\nvar nomes = new ArrayList<String>();\nnomes.add(\"Ana\");\nvar turma = new TurmaDTO(nomes);\nnomes.add(\"Bia\");\nSystem.out.println(turma.alunos().size()); // 2",
+      "pitfall": "Final impede reatribuir a referência do componente, mas não impede alterar o objeto referenciado.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 6,
       "title": "Validation",
-      "summary": "Valide a entrada e entenda o que cada regra cobre.",
+      "summary": "Saiba quando a validação acontece e qual entrada é rejeitada.",
       "body": [
-        "Bean Validation declara restrições nos dados. @NotNull rejeita null; @NotEmpty rejeita null e vazio; @NotBlank, para texto, também rejeita conteúdo somente em branco. @Size restringe tamanho, @Positive exige valor maior que zero e @Email verifica formato.",
-        "CustomerController usa @RequestBody @Valid CustomerDTO para disparar validação do corpo. No DTO, @Email vem junto de @NotBlank: verificar formato não torna por si só o campo obrigatório. @CPF é uma extensão do Hibernate Validator, não da API padrão Jakarta.",
-        "Para validar restrições dentro de AddressDTO, adicione @Valid no componente address. Se endereço for obrigatório, acrescente @NotNull. O CustomerDTO original não tem @Valid nesse componente: o trecho abaixo é uma melhoria didática.",
-        "Validação de entrada não substitui regra de negócio nem UNIQUE do banco. Concorrência pode permitir duas requisições válidas que tentam salvar o mesmo CPF; a restrição de unicidade continua necessária."
+        "@NotNull rejeita null. @NotEmpty rejeita null e conteúdo vazio. @NotBlank se aplica a texto e também rejeita conteúdo apenas em branco. @Size restringe tamanho, @Positive exige número maior que zero e @Email verifica formato.",
+        "@RequestBody @Valid no controller aciona validação do corpo recebido. Declarar constraints no DTO não torna qualquer new DTO(...) validado automaticamente. A validação precisa ser disparada pelo framework ou pela API Validator.",
+        "@Valid em um componente aninhado percorre o objeto relacionado. Para obrigar sua presença, combine com @NotNull. @Size e @Email isolados normalmente aceitam null; combine as regras de formato com a regra de presença apropriada.",
+        "Validation não substitui regra de negócio nem constraint do banco. Um email válido pode já estar cadastrado. Uma regra @Size(min=11, max=11) mede comprimento, não garante dígitos. @CPF é uma extensão do Hibernate Validator, enquanto @Pattern é uma constraint padrão para padrões de texto."
       ],
-      "code": "// Complemento ao CustomerDTO original\npublic record CadastroDTO(\n    @NotBlank @Email String email,\n    @NotNull @Valid AddressDTO address\n) {}\n\n// Trecho real do controller\ncreate(@RequestBody @Valid CustomerDTO customerDTO)",
-      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java",
-      "pitfall": "@Valid percorre objetos relacionados, mas não significa \"obrigatório\". Para proibir null, use @NotNull."
+      "code": "record CadastroDTO(\n    @NotBlank @Email String email,\n    @NotNull @Valid EnderecoDTO endereco\n) {}\n\n@PostMapping(\"/cadastros\")\nvoid criar(@RequestBody @Valid CadastroDTO dto) {\n    service.criar(dto);\n}",
+      "pitfall": "@Valid não significa obrigatório. A anotação aciona validação em cascata; a rejeição de null vem de @NotNull.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 7,
       "title": "Apache Kafka",
-      "summary": "Entenda eventos, partições, offsets e grupos.",
+      "summary": "Raciocine sobre eventos, partições e consumidores.",
       "body": [
-        "Kafka mantém eventos em tópicos divididos em partições. Producer publica, broker armazena e consumer lê. Offset identifica posição dentro de uma partição. Retenção controla por quanto tempo os registros permanecem, independentemente de já terem sido lidos.",
-        "Em grupos de consumidores convencionais, as partições são distribuídas entre integrantes do mesmo grupo. Grupos diferentes mantêm progresso independente. A ordenação é por partição; não existe ordem global automática entre todas as partições.",
-        "KafcaTopicConfig (grafia do arquivo original) declara um tópico com três partições e uma réplica. KafkaBaseConfig fornece ProducerFactory e KafkaTemplate. Não foram localizados send nem @KafkaListener implementando o ciclo completo; abaixo há um complemento de produtor e consumidor.",
-        "Com entrega ao menos uma vez, reprocessamento é possível. Faça o consumidor idempotente, por exemplo registrando eventId já processado. Não suponha que @Transactional do banco resolve automaticamente o envio de eventos: o padrão outbox é uma opção para coordenar isso."
+        "Kafka armazena eventos em tópicos particionados. Producer publica, broker armazena e consumer lê. Offset é a posição de um registro em uma partição. A leitura não apaga imediatamente o registro: retenção define sua permanência.",
+        "Em grupos convencionais de consumidores, cada partição é atribuída a um integrante do grupo por vez. Um consumidor pode ler várias partições. Grupos diferentes mantêm seus próprios offsets. A ordenação é por partição, não global entre partições.",
+        "KafkaTemplate publica eventos no Spring. @KafkaListener define processamento por consumo. A chave influencia a escolha de partição no particionador padrão; isso ajuda a agrupar eventos relacionados, mantendo a configuração de particionamento estável.",
+        "Entrega ao menos uma vez permite reprocessamento. Consumidores devem ser idempotentes para evitar duplicar efeitos. Gravar banco e publicar evento exige coordenação; outbox é uma estratégia. Partições controlam divisão do log e paralelismo; fator de replicação controla cópias."
       ],
-      "code": "// Complemento didático\nkafkaTemplate.send(\"order-created\", orderId, evento);\n\n@KafkaListener(topics = \"order-created\", groupId = \"estoque\")\npublic void receber(OrderCreated evento) {\n    // ignorar eventId já processado\n    // atualizar estoque\n}\n// O nome do tópico deve coincidir com a configuração.",
-      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java",
-      "pitfall": "Três partições não são três cópias. replicas(1) significa fator de replicação 1."
+      "code": "kafkaTemplate.send(\"pedido-criado\", pedidoId, evento);\n\n@KafkaListener(topics = \"pedido-criado\", groupId = \"estoque\")\nvoid receber(PedidoCriado evento) {\n    // verificar eventId já processado\n    // aplicar a alteração apenas uma vez\n}",
+      "pitfall": "Com 3 partições e 5 consumidores em um mesmo grupo convencional, no máximo 3 terão partições atribuídas desse tópico.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 8,
       "title": "Flyway",
-      "summary": "Evolua o esquema com migrations versionadas.",
+      "summary": "Evolua o esquema sem reescrever o histórico.",
       "body": [
-        "Flyway executa scripts de evolução do banco e registra histórico e checksums. Uma migration versionada segue uma convenção como V1__create_schema.sql: V, versão, dois sublinhados e descrição.",
-        "Os dois serviços possuem src/main/resources/db/migration. O application.yaml do customer habilita Flyway, validate-on-migrate e define ddl-auto: none. Portanto, o esquema deve acompanhar os scripts; mudar @Column sem migration não altera automaticamente a tabela.",
-        "Depois que V1 foi aplicada em ambiente compartilhado, uma alteração deve ir para V2, V3 e assim por diante. Editar V1 pode provocar divergência de checksum. validate detecta diferenças no histórico; migrate aplica migrations pendentes.",
-        "A migration de customer cria address, customer, orders e item_order. Ela explicita FK e UNIQUE para customer.address_id. baseline-on-migrate ajuda a adotar um esquema já existente nas condições apropriadas; não substitui a compreensão do histórico."
+        "Flyway organiza alterações do banco em migrations e registra versões e checksums no histórico. O nome padrão V2__add_apelido.sql usa V, versão, dois sublinhados e descrição. Versionadas são aplicadas uma vez, em ordem.",
+        "migrate aplica migrations pendentes. validate compara migrations com o histórico aplicado e detecta divergências, como checksum alterado. Uma mudança já compartilhada deve ser seguida por uma nova migration, em vez de editar o arquivo aplicado.",
+        "Em Spring Boot, scripts costumam ficar em classpath:db/migration. Com ddl-auto: none, Hibernate não atualiza automaticamente o esquema. Alterar uma entidade exige uma alteração SQL correspondente quando o esquema muda.",
+        "Migrations permitem repetir a evolução em desenvolvimento e produção. Não confunda código Java de acesso a dados com a estrutura física do banco. repair é uma operação de manutenção do histórico que exige entender e corrigir a causa da inconsistência."
       ],
-      "code": "-- Complemento: novo arquivo\n-- V2__add_customer_nickname.sql\nALTER TABLE customer ADD COLUMN nickname VARCHAR(80);\n\n# Configuração real\nspring:\n  jpa:\n    hibernate:\n      ddl-auto: none\n  flyway:\n    enabled: true\n    locations: classpath:db/migration",
-      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql",
-      "pitfall": "Não use repair como forma automática de esconder uma migration alterada; investigue a divergência."
+      "code": "-- V1__create_produto.sql\nCREATE TABLE produto (\n    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    nome VARCHAR(120) NOT NULL\n);\n\n-- V2__add_preco.sql\nALTER TABLE produto ADD COLUMN preco NUMERIC(12,2);",
+      "pitfall": "Se V1 já rodou, a correção estrutural vai para V2. Alterar o checksum da V1 não altera o banco já existente.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 9,
       "title": "Docker e Compose",
-      "summary": "Empacote aplicações e conecte serviços.",
+      "summary": "Distinga imagem, contêiner, rede e persistência.",
       "body": [
-        "Imagem é o pacote usado para criar contêineres; contêiner é uma instância em execução. Dockerfile descreve a imagem. No projeto, FROM escolhe uma imagem Java, COPY inclui o JAR e ENTRYPOINT inicia java -jar.",
-        "O Dockerfile de customer espera build/libs/customer-ms-0.0.1-SNAPSHOT.jar. É necessário gerar esse arquivo antes de construir a imagem. O arquivo docker-compose.yml recebido está vazio; a configuração abaixo é um complemento didático de infraestrutura.",
-        "Docker Compose descreve múltiplos serviços, redes, volumes e variáveis. Dentro da mesma rede, a aplicação usa o nome do serviço como host, por exemplo redis ou db. localhost dentro de um contêiner aponta para o próprio contêiner.",
-        "ports mapeia porta do host para porta interna; volumes preservam dados além do ciclo de vida do contêiner. depends_on simples controla ordem de início, não prontidão; healthchecks com condition: service_healthy permitem aguardar um serviço saudável. docker compose down -v remove volumes e seus dados."
+        "Imagem é um pacote a partir do qual contêineres são criados. Contêiner é uma instância isolada em execução. Dockerfile define instruções como FROM, COPY e ENTRYPOINT. Um COPY de JAR pressupõe que esse arquivo já exista no contexto de build.",
+        "Compose descreve múltiplos serviços, variáveis, volumes e redes em YAML. Na mesma rede, um serviço pode acessar outro pelo nome, como db:5432. localhost dentro de um contêiner representa o próprio contêiner.",
+        "Em ports: [\"8085:8080\"], 8085 é a porta no host e 8080 a porta interna. Comunicação entre serviços usa a porta interna. EXPOSE documenta uma porta da imagem; não a publica automaticamente no host.",
+        "Volumes preservam dados além da recriação do contêiner. depends_on simples ordena início, mas não garante prontidão. Um healthcheck com condition: service_healthy permite aguardar saúde. docker compose down -v remove volumes: não use isso para parar um banco que precisa preservar."
       ],
-      "code": "# Complemento didático; não é o compose original\nservices:\n  redis:\n    image: redis:7-alpine\n    ports: [\"6379:6379\"]\n  db:\n    image: postgres:17-alpine\n    environment:\n      POSTGRES_DB: customer_db\n      POSTGRES_PASSWORD: estudo_local\n    volumes:\n      - pgdata:/var/lib/postgresql/data\nvolumes:\n  pgdata: {}",
-      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)",
-      "pitfall": "O exemplo sobe somente infraestrutura. Para executar a aplicação, compile o JAR e configure as conexões; a senha ilustrativa é apenas para laboratório."
+      "code": "services:\n  api:\n    build: .\n    ports: [\"8085:8080\"]\n    environment:\n      DB_HOST: db\n  db:\n    image: postgres:17-alpine\n    environment:\n      POSTGRES_PASSWORD: exemplo_local\n    volumes: [\"dados:/var/lib/postgresql/data\"]\nvolumes:\n  dados: {}",
+      "pitfall": "O exemplo é de laboratório. Credenciais reais devem ser configuradas fora do código versionado.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     },
     {
       "id": 10,
       "title": "Redis",
-      "summary": "Leia o cache, trate ausência e cuide da consistência.",
+      "summary": "Entenda cache miss, TTL, invalidação e fallback.",
       "body": [
-        "Redis é um armazenamento de estruturas de dados em memória, com opções de persistência. No projeto funciona como cache de produtos por vendedor. Um hash reúne campos sob uma chave como seller:7:products; não é uma tabela SQL.",
-        "ProductCacheReader primeiro consulta o hash. Se não houver dados, chama SellerServiceClient, popula o Redis e retorna o resultado. Esse fluxo é cache-aside. O TTL é de 30 dias; expiração limita tempo de vida, mas não garante atualização imediata.",
-        "ProductCacheWriter salva o Product em product:<id>; o reader converte valores para ProductDTO. Esse contrato merece revisão, inclusive serialização e metadado sellerName, antes de tratar a integração como pronta. O writer registra falha e continua; o reader relança RuntimeException, então indisponibilidade do Redis não é tratada como cache miss.",
-        "Cache pode ficar desatualizado após alterações no banco. Defina atualização ou invalidação e uma política de fallback. @Cacheable e @CacheEvict são alternativas declarativas do Spring Cache; aqui o professor usa RedisTemplate diretamente."
+        "Redis é um armazenamento de estruturas de dados em memória com opções de persistência. Strings, hashes, sets e outras estruturas têm usos distintos. Para cache, escolha uma chave que identifique o dado, como produto:42.",
+        "No padrão cache-aside, a aplicação tenta ler o cache. Se não encontrar o valor, consulta a fonte e popula o cache. Cache miss é ausência; falha de conexão é erro. Uma política de fallback precisa tratar a indisponibilidade explicitamente.",
+        "TTL determina expiração. Ele não sincroniza mudanças do banco automaticamente. Se um produto muda de preço, atualize ou invalide a entrada. Uma transação JPA não torna atomicamente consistentes banco e cache.",
+        "No Spring Cache, @Cacheable pode reutilizar um resultado cacheado e evitar a execução do método. @CacheEvict remove entradas e @CachePut executa o método e atualiza o cache. Isso pressupõe cache habilitado e provedor configurado; para usar Redis, configure Redis como provedor."
       ],
-      "code": "String key = String.format(\"seller:%d:products\", sellerId);\nSellerProductsDTO cached = readFromCache(key);\nif (Objects.nonNull(cached)) return cached;\nvar products = sellerServiceClient.getProductBySellerId(sellerId);\npopulateRedis(key, products);\nreturn products;\n// populateRedis define TTL de 30 dias.",
-      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java",
-      "pitfall": "Cache miss é ausência de dado. Falha de conexão é erro; o código precisa decidir explicitamente como reagir."
+      "code": "// Exemplo com Spring Cache habilitado e Redis configurado\n@Cacheable(value = \"produtos\", key = \"#id\")\npublic ProdutoDTO buscar(Long id) {\n    return consultarBanco(id);\n}\n\n@CacheEvict(value = \"produtos\", key = \"#id\")\npublic void excluir(Long id) {\n    repository.deleteById(id);\n}",
+      "pitfall": "No modo usual baseado em proxy, uma chamada interna na mesma instância pode não passar pelo cache interceptor.",
+      "source": "Exemplo didático independente. Conteúdos alinhados à lista da AV1."
     }
   ],
   "questions": [
     {
       "id": 1,
       "topic": 0,
-      "prompt": "O que @RestController acrescenta a @Controller?",
+      "prompt": "Que requisição acessa o método abaixo?",
+      "code": "@RestController\n@RequestMapping(\"/api/livros\")\nclass LivroController {\n  @GetMapping(\"/{id}\")\n  LivroDTO buscar(@PathVariable Long id) { /* ... */ }\n}",
       "options": [
-        "Validação automática de todas as regras",
-        "Serialização do retorno no corpo HTTP",
-        "Criação das tabelas",
-        "Cache automático"
+        "POST /api/livros/8",
+        "GET /api/livros/8",
+        "GET /api/livros?id=8",
+        "GET /api/8/livros"
       ],
       "answer": 1,
-      "explanation": "@RestController inclui a semântica de @ResponseBody. Validação e cache exigem configuração própria.",
-      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)"
+      "explanation": "O caminho da classe se soma ao do método. @PathVariable recebe o segmento {id}; o verbo é GET.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 2,
       "topic": 0,
-      "prompt": "Qual anotação registra o retorno de um método como bean?",
+      "prompt": "Em uma aplicação Spring MVC padrão, qual o problema mais provável?",
+      "code": "@Controller\nclass SaudacaoController {\n  @GetMapping(\"/oi\")\n  String oi() { return \"Olá\"; }\n}",
       "options": [
-        "@Bean",
-        "@Entity",
-        "@Schema",
-        "@Column"
+        "A String tende a ser interpretada como nome de view",
+        "O Spring rejeita qualquer retorno String",
+        "O método sempre retorna JSON com campo mensagem",
+        "@GetMapping só funciona com parâmetros"
       ],
       "answer": 0,
-      "explanation": "@Bean é usada em métodos de configuração para fornecer objetos gerenciados pelo Spring.",
-      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)"
+      "explanation": "Sem @ResponseBody, @Controller pode tratar String como nome de view. Para escrever esse texto no corpo, use @ResponseBody ou @RestController.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 3,
       "topic": 0,
-      "prompt": "Qual URL corresponde ao cadastro no CustomerController?",
+      "prompt": "O que acontece se esta classe estiver registrada na configuração?",
+      "code": "@Configuration\nclass Config {\n  @Bean\n  Relogio relogio() { return new Relogio(); }\n}",
       "options": [
-        "GET /customer/create",
-        "POST /api/v1/create",
-        "POST /customer-app/api/v1/customer/create",
-        "POST /seller-app/customer"
+        "Relogio se torna entidade JPA",
+        "Todo new Relogio() passa a ser interceptado",
+        "O retorno do método é registrado como bean",
+        "O método executa uma vez por requisição obrigatoriamente"
       ],
       "answer": 2,
-      "explanation": "Some context-path, @RequestMapping da classe e @PostMapping do método.",
-      "source": "customer-ms / controller/CustomerController.java, linhas 21–40 (recorte abreviado)"
+      "explanation": "@Bean registra o objeto retornado no contêiner. O escopo padrão é singleton por definição de bean, não por requisição.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 4,
-      "topic": 1,
-      "prompt": "Onde deve ficar uma regra que verifica se o vendedor existe antes de salvar produto?",
+      "topic": 0,
+      "prompt": "Qual anotação lê pagina em GET /itens?pagina=2?",
+      "code": "",
       "options": [
-        "No CSS",
-        "No DTO exclusivamente",
-        "No Dockerfile",
-        "No service"
+        "@RequestBody",
+        "@PathVariable",
+        "@RequestMapping",
+        "@RequestParam"
       ],
       "answer": 3,
-      "explanation": "ProductService verifica o vendedor e coordena a persistência: essa é uma responsabilidade de negócio.",
-      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java"
+      "explanation": "@RequestParam lê parâmetros da requisição. @PathVariable serve para variáveis declaradas no caminho.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 5,
-      "topic": 1,
-      "prompt": "Product.sellerId é um Long com @Column. Isso cria @ManyToOne?",
+      "topic": 0,
+      "prompt": "O main está em br.app e o service em br.outro. Só há @SpringBootApplication no main. Qual diagnóstico é adequado?",
+      "code": "",
       "options": [
-        "Não, é apenas um campo escalar",
-        "Sim, pelo sufixo Id",
-        "Sim, pelo nome seller",
-        "Somente se usar Redis"
+        "@Service funciona em qualquer pacote sem configuração",
+        "O pacote do service pode estar fora do component scan padrão",
+        "O service precisa obrigatoriamente de @Entity",
+        "É obrigatório instanciar o service com new"
       ],
-      "answer": 0,
-      "explanation": "Uma associação ORM precisa de mapeamento de relacionamento; o nome do campo não o cria.",
-      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java"
+      "answer": 1,
+      "explanation": "O scan padrão parte do pacote da aplicação e subpacotes. Mova a classe para essa árvore ou configure explicitamente o scan.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 6,
       "topic": 1,
-      "prompt": "Qual sequência descreve o cadastro de cliente?",
+      "prompt": "Que responsabilidade deveria ser extraída para um service?",
+      "code": "@RestController\nclass PedidoController {\n  @PostMapping(\"/pedidos\")\n  void criar(@RequestBody PedidoDTO dto) {\n    // verificar estoque, calcular desconto,\n    // reservar itens e persistir o pedido\n  }\n}",
       "options": [
-        "Repository → Controller → DTO",
-        "Controller → Service → Mapper/Repository",
-        "Redis → Docker → Controller",
-        "Entity → Kafka → HTML"
+        "A definição de @PostMapping",
+        "A leitura do corpo HTTP",
+        "As regras e a coordenação do pedido",
+        "A escolha de ResponseEntity exclusivamente"
       ],
-      "answer": 1,
-      "explanation": "O controller recebe a chamada; o service converte o DTO e usa o repository.",
-      "source": "customer-ms / controller/CustomerController.java; service/CustomerService.java; mapper/CustomerMapper.java"
+      "answer": 2,
+      "explanation": "Verificar estoque, calcular descontos e coordenar persistência são regras e casos de uso. O controller deve tratar a fronteira HTTP.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 7,
-      "topic": 2,
-      "prompt": "Quem efetivamente injeta CustomerRepository no service?",
+      "topic": 1,
+      "prompt": "O que se pode concluir deste campo?",
+      "code": "@Entity\nclass Pedido {\n  @Id Long id;\n  @Column(name = \"cliente_id\")\n  Long clienteId;\n}",
       "options": [
-        "Lombok",
-        "PostgreSQL",
-        "O contêiner Spring",
-        "O record"
+        "É um campo escalar, sem associação JPA declarada",
+        "Cria automaticamente @ManyToOne",
+        "Gera automaticamente uma FK remota",
+        "O Hibernate consulta outro microsserviço"
       ],
-      "answer": 2,
-      "explanation": "Lombok gera o construtor; Spring resolve os beans e chama o construtor.",
-      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)"
+      "answer": 0,
+      "explanation": "O nome clienteId e @Column não estabelecem relacionamento ORM. Para uma associação seria necessário mapeamento apropriado.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 8,
-      "topic": 2,
-      "prompt": "Há um único construtor com dependências. @Autowired é obrigatório?",
+      "topic": 1,
+      "prompt": "Uma entidade contém senhaHash e notasInternas. Qual desenho reduz exposição acidental na API?",
+      "code": "",
       "options": [
-        "Não",
-        "Sempre",
-        "Apenas com final",
-        "Apenas em controllers"
+        "Retornar a entidade inteira e confiar no cliente",
+        "Copiar o banco para o navegador",
+        "Adicionar @Service à entidade",
+        "Retornar um DTO de saída com campos explícitos"
       ],
-      "answer": 0,
-      "explanation": "O Spring pode usar o único construtor sem @Autowired.",
-      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)"
+      "answer": 3,
+      "explanation": "DTOs de saída definem o contrato e limitam o que é exposto, sem acoplar a API a todos os campos da entidade.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 9,
-      "topic": 2,
-      "prompt": "Qual exemplo representa injeção de dependência?",
+      "topic": 1,
+      "prompt": "Separar controller, service e repository em pacotes cria microsserviços?",
+      "code": "",
       "options": [
-        "Criar repository com new em cada método",
-        "Receber repository no construtor",
-        "Criar uma tabela SQL",
-        "Escrever @Column"
+        "Sim, cada pacote passa a ter processo próprio",
+        "Não, isso organiza camadas; implantação é outra dimensão",
+        "Sim, se houver @RestController",
+        "Somente se o repository usar JpaRepository"
       ],
       "answer": 1,
-      "explanation": "A dependência vem de fora da classe, mantendo criação e uso separados.",
-      "source": "customer-ms / service/CustomerService.java, linhas 15–23 (recorte)"
+      "explanation": "Um sistema único pode ter camadas. Microsserviços envolvem responsabilidades e unidades de execução e implantação independentes.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 10,
-      "topic": 3,
-      "prompt": "Qual é a relação correta entre as tecnologias?",
+      "topic": 1,
+      "prompt": "Qual é o fluxo mais coerente para um cadastro?",
+      "code": "",
       "options": [
-        "JPA é o banco e Redis o ORM",
-        "Hibernate é a especificação",
-        "Spring Data substitui o banco",
-        "JPA é especificação; Hibernate é provedor"
+        "DTO → banco → controller → regra",
+        "Repository → HTTP → service → entidade",
+        "Controller → service → mapper/repository → banco",
+        "Entity → mapper → Docker → controller"
       ],
-      "answer": 3,
-      "explanation": "Spring Data JPA oferece repositórios, enquanto Hibernate implementa a especificação JPA.",
-      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java"
+      "answer": 2,
+      "explanation": "O controller trata a requisição, o service executa o caso de uso e o repository persiste. Mapper pode converter DTO e entidade.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 11,
-      "topic": 3,
-      "prompt": "O que @GeneratedValue(strategy = IDENTITY) indica?",
+      "topic": 2,
+      "prompt": "A injeção funciona sem @Autowired neste caso?",
+      "code": "@Service\nclass NotificacaoService {\n  private final EmailClient client;\n  NotificacaoService(EmailClient client) {\n    this.client = client;\n  }\n}\n// Há exatamente um bean EmailClient. A classe está no scan.",
       "options": [
-        "Geração do identificador pelo mecanismo identity do banco",
-        "Chave Redis",
-        "Conversão em DTO",
-        "Geração de JWT"
+        "Sim, o Spring usa o único construtor",
+        "Não, final impede injeção",
+        "Não, todo construtor precisa de @Autowired",
+        "Só se EmailClient for entidade"
       ],
       "answer": 0,
-      "explanation": "A estratégia IDENTITY utiliza uma coluna com geração de identidade pelo banco.",
-      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java"
+      "explanation": "Com um único construtor, @Autowired não é necessária. O colaborador deve estar disponível no contêiner.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 12,
-      "topic": 3,
-      "prompt": "A transação de ProductService garante atomicidade entre PostgreSQL e Redis?",
+      "topic": 2,
+      "prompt": "Sem @Primary, @Qualifier ou correspondência de nome, o que ocorre?",
+      "code": "interface Pagamento {}\n@Service class Cartao implements Pagamento {}\n@Service class Pix implements Pagamento {}\n@Service\nclass Checkout {\n  Checkout(Pagamento gateway) {}\n}",
       "options": [
-        "Sim, por causa de @Service",
-        "Não, isso exige coordenação adicional",
-        "Sim, com @Data",
-        "Somente pelo Docker"
+        "Spring injeta null",
+        "As duas implementações são executadas",
+        "O primeiro arquivo em ordem alfabética é escolhido",
+        "A injeção é ambígua e a inicialização falha"
       ],
-      "answer": 1,
-      "explanation": "A transação relacional não engloba automaticamente a escrita no cache.",
-      "source": "seller-ms / domain/Product.java; service/ProductService.java; repository/ProductRepository.java"
+      "answer": 3,
+      "explanation": "Duas candidatas igualmente elegíveis impedem resolução inequívoca. Qualifique a dependência ou defina uma preferência.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 13,
-      "topic": 4,
-      "prompt": "Em mappedBy = \"order\", order representa o quê?",
+      "topic": 2,
+      "prompt": "Qual afirmação distingue Lombok e Spring?",
+      "code": "@Service\n@RequiredArgsConstructor\nclass EstoqueService {\n  private final EstoqueRepository repository;\n}",
       "options": [
-        "A tabela orders",
-        "A coluna order_id",
-        "O atributo Java em ItemOrder",
-        "O nome da migration"
+        "Lombok instancia o repository",
+        "Lombok gera o construtor; Spring fornece o bean",
+        "@RequiredArgsConstructor inicia uma transação",
+        "final registra o repository no contêiner"
       ],
-      "answer": 2,
-      "explanation": "mappedBy aponta para o atributo que possui a associação do outro lado.",
-      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java"
+      "answer": 1,
+      "explanation": "Lombok atua na geração de código. A resolução e a injeção dos beans ficam com o Spring.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 14,
-      "topic": 4,
-      "prompt": "Quem é dono do relacionamento Order–ItemOrder no projeto?",
+      "topic": 2,
+      "prompt": "Qual definição descreve melhor IoC e DI?",
+      "code": "",
       "options": [
-        "ItemOrder, que tem a FK order_id",
-        "Order, porque tem uma lista",
-        "Os dois são donos",
-        "O DTO"
+        "IoC cria tabelas e DI valida DTOs",
+        "IoC é uma anotação e DI um banco",
+        "IoC delega controle; DI fornece dependências externamente",
+        "IoC e DI exigem herança em todas as classes"
       ],
-      "answer": 0,
-      "explanation": "@JoinColumn em ItemOrder indica o lado dono da associação.",
-      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java"
+      "answer": 2,
+      "explanation": "IoC é o princípio mais amplo; injeção de dependência é uma técnica que o realiza.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 15,
-      "topic": 4,
-      "prompt": "Um vínculo Produto–Categoria precisa guardar prioridade por produto. O que é mais adequado?",
+      "topic": 2,
+      "prompt": "Por que new RelatorioService(...) não equivale a obter o bean do Spring?",
+      "code": "",
       "options": [
-        "Um Long solto sem tabela",
-        "Uma entidade associativa com esse atributo",
-        "@OneToOne sempre",
-        "@ManyToMany sem nenhum atributo adicional"
+        "A instância manual pode não receber os proxies e recursos do contêiner",
+        "Porque new é proibido no Java com Spring",
+        "Porque service sempre é abstrato",
+        "Porque somente records podem ser instanciados"
       ],
-      "answer": 1,
-      "explanation": "A entidade associativa permite representar dados próprios do vínculo.",
-      "source": "customer-ms / domain/Customer.java; seller-ms / domain/Order.java e ItemOrder.java"
+      "answer": 0,
+      "explanation": "Uma instância criada manualmente pode funcionar como objeto Java, mas não é automaticamente a instância gerenciada com interceptadores de transação ou cache.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 16,
-      "topic": 5,
-      "prompt": "Como acessar o nome em CustomerDTO record?",
+      "topic": 3,
+      "prompt": "Sem nativeQuery=true, qual é o erro na consulta?",
+      "code": "@Entity\n@Table(name = \"tb_produto\")\nclass Produto {\n  @Id Long id;\n  String nome;\n}\n\n@Query(\"SELECT * FROM tb_produto\")\nList<Produto> todos();",
       "options": [
-        "dto.getName() obrigatoriamente",
-        "dto.name()",
-        "dto.name = valor",
-        "dto.getRecord()"
+        "O repository precisa devolver String",
+        "@Table não pode ser usado com @Entity",
+        "A consulta usa SQL onde se espera JPQL",
+        "SELECT é proibido em @Query"
       ],
-      "answer": 1,
-      "explanation": "O acessor gerado tem o mesmo nome do componente: name().",
-      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)"
+      "answer": 2,
+      "explanation": "JPQL usa entidades e atributos, por exemplo select p from Produto p. Para SQL de tabela, declare uma consulta nativa.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 17,
-      "topic": 5,
-      "prompt": "Um record com List<String> garante que a lista nunca muda?",
+      "topic": 3,
+      "prompt": "Qual é o comportamento padrão esperado?",
+      "code": "@Transactional\npublic void transferir() {\n  debitar();\n  throw new IllegalStateException(\"Falha\");\n}\n// Método de bean chamado externamente pelo proxy.\n// debitar participa da mesma transação relacional.",
       "options": [
-        "Sim, sempre",
-        "Sim, se for DTO",
-        "Não, a imutabilidade é superficial",
-        "Só com @Entity"
+        "A transação sofre rollback por RuntimeException",
+        "Tudo é confirmado antes da exceção",
+        "Rollback só ocorre com SQLException",
+        "@Transactional ignora exceções"
       ],
-      "answer": 2,
-      "explanation": "A referência é final, mas a lista referenciada ainda pode ser mutável.",
-      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)"
+      "answer": 0,
+      "explanation": "IllegalStateException é uma RuntimeException. No padrão do Spring, ela sinaliza rollback da transação.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 18,
-      "topic": 5,
-      "prompt": "Todo DTO precisa ser record?",
+      "topic": 3,
+      "prompt": "Por que a transação de salvar pode não ser aplicada?",
+      "code": "@Service\nclass ImportacaoService {\n  public void importar() { this.salvar(); }\n  @Transactional\n  public void salvar() { /* gravar dados */ }\n}\n// Modo de proxy padrão; importar não é transacional.",
       "options": [
-        "Não, DTO é um papel e pode ser classe",
-        "Sim, é regra do Spring",
-        "Sim, por exigência do JPA",
-        "Só se usar Kafka"
+        "Porque métodos públicos não podem ter transação",
+        "Porque @Service impede proxies",
+        "Porque salvar retorna void",
+        "A chamada interna não atravessa o proxy transacional"
       ],
-      "answer": 0,
-      "explanation": "DTO descreve a função do objeto, não uma única forma de implementá-lo.",
-      "source": "customer-ms / dto/CustomerDTO.java, linhas 10–31 (mensagens e @Schema omitidos)"
+      "answer": 3,
+      "explanation": "Self-invocation no modo padrão não passa pelo interceptor do proxy. Separe a operação em outro bean ou ajuste a fronteira transacional.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 19,
-      "topic": 6,
-      "prompt": "Qual regra rejeita uma String contendo apenas espaços?",
+      "topic": 3,
+      "prompt": "Qual nome é armazenado por esse mapeamento?",
+      "code": "enum Status { NOVO, PAGO }\n@Enumerated(EnumType.STRING)\nprivate Status status = Status.PAGO;",
       "options": [
-        "@NotNull",
-        "@Positive",
-        "@NotBlank",
-        "@Schema"
+        "O ordinal 1",
+        "O texto PAGO",
+        "O nome da classe Status",
+        "Um JSON com todos os valores"
       ],
-      "answer": 2,
-      "explanation": "@NotBlank exige texto não nulo com ao menos um caractere não branco.",
-      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java"
+      "answer": 1,
+      "explanation": "EnumType.STRING persiste o nome da constante. ORDINAL usaria sua posição.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 20,
-      "topic": 6,
-      "prompt": "Como validar campos internos de AddressDTO e exigir endereço?",
+      "topic": 3,
+      "prompt": "Qual relação entre tecnologias está correta?",
+      "code": "",
       "options": [
-        "Somente @Schema",
-        "@NotNull @Valid no componente address",
-        "Somente @Column",
-        "@Autowired"
+        "Spring Data é o banco e JPA é o driver",
+        "Hibernate é o nome antigo de PostgreSQL",
+        "JPA é especificação, Hibernate é provedor e Spring Data oferece repositórios",
+        "JPA só funciona se todas as consultas forem SQL nativo"
       ],
-      "answer": 1,
-      "explanation": "@NotNull exige o objeto, e @Valid ativa validação em cascata.",
-      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java"
+      "answer": 2,
+      "explanation": "São camadas distintas: especificação, implementação e abstração de repositório.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 21,
-      "topic": 6,
-      "prompt": "O telefone tem @Size(min=11,max=11). Onze letras passam nessa regra isolada?",
+      "topic": 4,
+      "prompt": "Qual valor de mappedBy está correto?",
+      "code": "// Pedido\n@OneToMany(mappedBy = \"???\")\nList<Item> itens;\n\n// Item\n@ManyToOne\n@JoinColumn(name = \"pedido_id\")\nPedido pedido;",
       "options": [
-        "Sim, ela só mede tamanho",
-        "Não, Size valida dígitos",
-        "Não, record impede",
-        "Somente no Redis"
+        "itens",
+        "pedido_id",
+        "Item",
+        "pedido"
       ],
-      "answer": 0,
-      "explanation": "Use também uma regra de formato, como @Pattern, para exigir dígitos.",
-      "source": "customer-ms / dto/CustomerDTO.java e controller/CustomerController.java"
+      "answer": 3,
+      "explanation": "mappedBy usa o atributo Java do outro lado: pedido. pedido_id é o nome da coluna.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 22,
-      "topic": 7,
-      "prompt": "No tópico da aula, partitions(3) e replicas(1) significam:",
+      "topic": 4,
+      "prompt": "Ao remover um Item da coleção e manter os dois lados consistentes, o que orphanRemoval permite?",
+      "code": "@OneToMany(mappedBy = \"pedido\", orphanRemoval = true)\nList<Item> itens;\n// Entidades gerenciadas, transação ativa e flush posterior.",
       "options": [
-        "Uma partição com três cópias",
-        "Três partições com fator de replicação um",
-        "Três bancos relacionais",
-        "Três grupos obrigatórios"
+        "Remover o filho órfão da persistência",
+        "Remover o pedido inteiro automaticamente",
+        "Transformar a coleção em EAGER",
+        "Apagar todos os itens de todos os pedidos"
       ],
-      "answer": 1,
-      "explanation": "Particionamento distribui o log; replicação define quantas cópias de cada partição existem.",
-      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java"
+      "answer": 0,
+      "explanation": "orphanRemoval controla a exclusão de filhos privados desvinculados da associação. Não significa apagar o pai.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 23,
-      "topic": 7,
-      "prompt": "Onde Kafka garante ordenação de registros?",
+      "topic": 4,
+      "prompt": "Aluno e Curso têm relação muitos para muitos, mas cada matrícula precisa de nota e data. Qual modelagem é melhor?",
+      "code": "",
       "options": [
-        "Em todas as aplicações",
-        "Em todos os tópicos juntos",
-        "Dentro de cada partição",
-        "Entre todos os grupos"
+        "Salvar nota em Curso para todos os alunos",
+        "Usar entidade Matricula com duas associações ManyToOne",
+        "Usar OneToOne entre Aluno e Curso",
+        "Colocar nota em @JoinTable sem entidade"
       ],
-      "answer": 2,
-      "explanation": "Partições são logs ordenados independentes.",
-      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java"
+      "answer": 1,
+      "explanation": "Nota e data pertencem ao vínculo. A entidade associativa representa esses atributos e o ciclo de vida da matrícula.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 24,
-      "topic": 7,
-      "prompt": "Por que um consumidor deve ser idempotente?",
+      "topic": 4,
+      "prompt": "Por que este cascade pode ser perigoso?",
+      "code": "@ManyToMany(cascade = CascadeType.ALL)\nSet<Categoria> categorias;\n// Uma categoria pode ser compartilhada por vários produtos.",
       "options": [
-        "Porque um evento pode ser reprocessado",
-        "Para apagar o tópico",
-        "Para dispensar offsets",
-        "Para criar DTO automaticamente"
+        "ALL muda fetch para EAGER",
+        "ALL elimina a tabela intermediária",
+        "ALL inclui REMOVE, que pode propagar remoção à categoria compartilhada",
+        "ALL impede adicionar categorias"
       ],
-      "answer": 0,
-      "explanation": "Executar o mesmo evento novamente não deve duplicar efeitos, como baixar o estoque duas vezes.",
-      "source": "customer-ms / config/KafkaBaseConfig.java e config/KafcaTopicConfig.java"
+      "answer": 2,
+      "explanation": "O vínculo e a categoria têm vidas diferentes. Remover um produto não deveria necessariamente excluir categorias usadas por outros.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 25,
-      "topic": 8,
-      "prompt": "Qual nome segue a convenção padrão de migration versionada?",
+      "topic": 4,
+      "prompt": "Qual combinação expressa bem uma associação um para um com FK?",
+      "code": "",
       "options": [
-        "V2_add.sql",
-        "V2__add_nickname.sql",
-        "migration-final.sql",
-        "2V__schema.txt"
+        "FK sem unicidade obrigatoriamente",
+        "Somente @NotNull em uma String",
+        "Uma tabela sem chave primária",
+        "@OneToOne e uma FK com unicidade no esquema"
       ],
-      "answer": 1,
-      "explanation": "A separação padrão entre versão e descrição usa dois sublinhados.",
-      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql"
+      "answer": 3,
+      "explanation": "A unicidade da FK impede que vários registros apontem ao mesmo alvo por essa associação.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
     },
     {
       "id": 26,
-      "topic": 8,
-      "prompt": "V1 já foi aplicada. Como adicionar uma coluna?",
+      "topic": 5,
+      "prompt": "Qual é a saída?",
+      "code": "record PessoaDTO(String nome, int idade) {}\nvar p = new PessoaDTO(\"Ana\", 20);\nSystem.out.println(p.nome());",
       "options": [
-        "Editar V1 e ignorar histórico",
-        "Apagar o banco sempre",
-        "Criar V2 com ALTER TABLE",
-        "Alterar apenas o DTO"
+        "Ana",
+        "PessoaDTO",
+        "getNome",
+        "Não compila porque falta getter manual"
       ],
-      "answer": 2,
-      "explanation": "Uma nova migration preserva o histórico já aplicado.",
-      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql"
+      "answer": 0,
+      "explanation": "Records geram acessores com o nome dos componentes, como nome().",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 27,
-      "topic": 8,
-      "prompt": "Com ddl-auto: none, alterar @Column atualiza automaticamente a tabela?",
+      "topic": 5,
+      "prompt": "Qual é a saída?",
+      "code": "record GrupoDTO(List<String> nomes) {}\nvar nomes = new ArrayList<String>();\nnomes.add(\"Ana\");\nvar g = new GrupoDTO(nomes);\nnomes.add(\"Bia\");\nSystem.out.println(g.nomes().size());",
       "options": [
-        "Não, o esquema precisa da migration correspondente",
-        "Sim",
-        "Só se for record",
-        "Só pelo Redis"
+        "0",
+        "1",
+        "2",
+        "Lança erro porque toda List em record é imutável"
       ],
-      "answer": 0,
-      "explanation": "Hibernate não está configurado para atualizar o esquema nessa aplicação.",
-      "source": "customer-ms / src/main/resources/application.yaml e db/migration/V1__create_schema.sql"
+      "answer": 2,
+      "explanation": "O record guarda a referência. A lista continua mutável; alterar a mesma lista afeta o que o acessor observa.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 28,
-      "topic": 9,
-      "prompt": "O que localhost representa dentro de um contêiner?",
+      "topic": 5,
+      "prompt": "O que ocorre ao tentar compilar?",
+      "code": "record ProdutoDTO(String nome) {}\nvar p = new ProdutoDTO(\"Café\");\np.setNome(\"Chá\");",
       "options": [
-        "Sempre o computador host",
-        "Todos os serviços",
-        "O próprio contêiner",
-        "O serviço PostgreSQL"
+        "O nome muda para Chá",
+        "Não compila: o record não gera setNome",
+        "A alteração é ignorada silenciosamente",
+        "Cria um segundo record automaticamente"
       ],
-      "answer": 2,
-      "explanation": "Para outro serviço Compose, normalmente se usa o nome desse serviço na rede.",
-      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)"
+      "answer": 1,
+      "explanation": "Records geram acessores, não setters. Para representar outro valor, crie uma nova instância.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 29,
-      "topic": 9,
-      "prompt": "Qual recurso preserva os dados do PostgreSQL ao recriar o contêiner?",
+      "topic": 5,
+      "prompt": "Qual é a saída para estes componentes String e int?",
+      "code": "record Ponto(String nome, int x) {}\nvar a = new Ponto(\"A\", 3);\nvar b = new Ponto(\"A\", 3);\nSystem.out.println(a.equals(b));",
       "options": [
-        "@Entity",
-        "Um volume",
-        "O nome da imagem",
-        "@Valid"
+        "A",
+        "3",
+        "false",
+        "true"
       ],
-      "answer": 1,
-      "explanation": "Um volume guarda dados fora da camada gravável descartável do contêiner.",
-      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)"
+      "answer": 3,
+      "explanation": "O equals gerado compara os valores dos componentes, não apenas a identidade de referência.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 30,
-      "topic": 9,
-      "prompt": "depends_on simples garante que o banco aceita conexões?",
+      "topic": 5,
+      "prompt": "Qual construção protege contra alterações posteriores na lista de origem?",
+      "code": "record GrupoDTO(List<String> nomes) {\n  public GrupoDTO {\n    // completar o construtor compacto\n  }\n}",
       "options": [
-        "Sim, sempre",
-        "Só com Java",
-        "Sim, se publicar a porta",
-        "Não; prontidão exige healthcheck ou outra estratégia"
+        "nomes = List.copyOf(nomes);",
+        "nomes = nomes;",
+        "System.out.println(nomes);",
+        "@Autowired nomes;"
       ],
-      "answer": 3,
-      "explanation": "Iniciar um processo não significa que ele já esteja pronto para atender.",
-      "source": "customer-ms / Dockerfile; backend/docker-compose.yml (vazio no material recebido)"
+      "answer": 0,
+      "explanation": "List.copyOf cria uma lista não modificável com os elementos recebidos. Isso não torna profundamente imutáveis elementos que sejam mutáveis.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 31,
-      "topic": 10,
-      "prompt": "O que ocorre em um cache miss no ProductCacheReader?",
+      "topic": 6,
+      "prompt": "Qual valor é rejeitado por @NotBlank?",
+      "code": "record NomeDTO(@NotBlank String nome) {}",
       "options": [
-        "Apaga o PostgreSQL",
-        "Consulta o seller-service e popula o Redis",
-        "Cria um tópico Kafka",
-        "Retorna sempre erro 404"
+        "\"Ana\"",
+        "\"   \"",
+        "\"A\"",
+        "\" Ana \""
       ],
       "answer": 1,
-      "explanation": "O reader busca a fonte por HTTP quando o hash está vazio.",
-      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java"
+      "explanation": "Uma String só com espaços não tem caracteres não brancos. O último valor contém Ana e não viola NotBlank.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
     },
     {
       "id": 32,
-      "topic": 10,
-      "prompt": "TTL de 30 dias garante que produtos nunca ficam desatualizados?",
+      "topic": 6,
+      "prompt": "O endpoint usa @Valid CadastroDTO. Qual mudança valida rua dentro de endereco e exige o endereço?",
+      "code": "record EnderecoDTO(@NotBlank String rua) {}\nrecord CadastroDTO(EnderecoDTO endereco) {}",
       "options": [
-        "Sim",
-        "Sim, com hash",
-        "Não",
-        "Apenas com Docker"
+        "Adicionar apenas @Schema",
+        "Adicionar apenas @Column",
+        "Usar @NotNull @Valid no componente endereco",
+        "Trocar record por classe sem nenhuma anotação"
       ],
       "answer": 2,
-      "explanation": "TTL limita validade temporal, mas não sincroniza automaticamente mudanças da fonte.",
-      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java"
+      "explanation": "@Valid faz a cascata para EnderecoDTO; @NotNull rejeita a ausência do objeto.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
     },
     {
       "id": 33,
-      "topic": 10,
-      "prompt": "Redis indisponível é necessariamente tratado como cache miss no código real?",
+      "topic": 6,
+      "prompt": "O que acontece nesta criação direta, sem chamada ao Validator?",
+      "code": "record PessoaDTO(@NotBlank String nome) {}\nvar p = new PessoaDTO(\"\");\nSystem.out.println(p.nome().length());",
       "options": [
-        "Não, o reader relança a exceção",
-        "Sim, sempre",
-        "Sim, pelo @Component",
-        "Somente quando o DTO é record"
+        "Imprime 0",
+        "Lança automaticamente ConstraintViolationException",
+        "Não compila",
+        "O construtor troca vazio por null"
       ],
       "answer": 0,
-      "explanation": "readFromCache captura RuntimeException, registra log e lança outra RuntimeException.",
-      "source": "customer-ms / cache/ProductCacheReader.java; seller-ms / cache/ProductCacheWriter.java"
+      "explanation": "A constraint é declarativa. new sozinho não dispara Bean Validation. O framework ou Validator precisa executar a validação.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 34,
+      "topic": 6,
+      "prompt": "Qual afirmação está correta sobre esta regra isolada?",
+      "code": "record TelefoneDTO(@Size(min = 11, max = 11) String numero) {}",
+      "options": [
+        "Rejeita qualquer null automaticamente",
+        "Aceita somente números brasileiros válidos",
+        "Remove caracteres não numéricos",
+        "Onze letras podem passar; tamanho não valida dígitos"
+      ],
+      "answer": 3,
+      "explanation": "@Size verifica comprimento e considera null válido. Combine presença e formato, por exemplo @NotBlank e @Pattern.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 35,
+      "topic": 6,
+      "prompt": "Quais valores violam @Positive isoladamente em Integer?",
+      "code": "",
+      "options": [
+        "Apenas null",
+        "Zero e números negativos",
+        "Apenas números maiores que 100",
+        "Todos os números pares"
+      ],
+      "answer": 1,
+      "explanation": "@Positive exige maior que zero; null é válido para essa constraint isolada. Use @NotNull quando a presença for obrigatória.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 36,
+      "topic": 7,
+      "prompt": "Há 3 partições e 5 consumidores no mesmo grupo convencional, inscritos somente neste tópico. Quantos consumidores podem receber partições ao mesmo tempo?",
+      "code": "",
+      "options": [
+        "5",
+        "1",
+        "No máximo 3",
+        "Sempre 0 até criar 5 partições"
+      ],
+      "answer": 2,
+      "explanation": "Cada partição é atribuída a um membro do grupo por vez. Com três partições, até três membros trabalham e os restantes ficam sem partições.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 37,
+      "topic": 7,
+      "prompt": "O que esta configuração expressa?",
+      "code": "TopicBuilder.name(\"pedidos\")\n  .partitions(3)\n  .replicas(1)\n  .build();",
+      "options": [
+        "3 partições e fator de replicação 1",
+        "1 partição e 3 réplicas",
+        "3 grupos de consumidores",
+        "3 cópias adicionais por partição"
+      ],
+      "answer": 0,
+      "explanation": "Partições dividem o log. replicas(1) indica uma cópia total de cada partição, não uma cópia adicional.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 38,
+      "topic": 7,
+      "prompt": "Qual garantia de ordem é correta?",
+      "code": "",
+      "options": [
+        "Ordem global entre todos os tópicos",
+        "Ordem global entre todas as partições",
+        "A ordem depende apenas do nome do grupo",
+        "Ordem dentro de cada partição"
+      ],
+      "answer": 3,
+      "explanation": "Cada partição é um log ordenado independente. Não há ordenação global automática entre partições.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 39,
+      "topic": 7,
+      "prompt": "Após atualizar o estoque, o consumidor falha antes de confirmar o offset. O evento é entregue novamente. Qual é o risco?",
+      "code": "void consumir(Evento e) {\n  estoque.diminuir(e.produtoId(), e.quantidade());\n  // falha antes da confirmação de processamento\n}",
+      "options": [
+        "O broker apaga todas as partições",
+        "Baixar estoque duas vezes se o processamento não for idempotente",
+        "O tópico muda de nome",
+        "O DTO se torna inválido por definição"
+      ],
+      "answer": 1,
+      "explanation": "O efeito ocorreu antes da confirmação. Reentrega pode duplicá-lo; use identificação do evento e coordenação adequada.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 40,
+      "topic": 7,
+      "prompt": "Estoque e notificações precisam receber independentemente todos os eventos de pedidos. Qual configuração faz sentido?",
+      "code": "",
+      "options": [
+        "Mesmo groupId para competir por partições",
+        "Sem nenhum groupId nem offset",
+        "groupIds diferentes para progresso independente",
+        "Um único grupo com apenas uma partição para garantir cópias"
+      ],
+      "answer": 2,
+      "explanation": "Grupos distintos mantêm offsets próprios e podem processar o mesmo fluxo independentemente.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 41,
+      "topic": 8,
+      "prompt": "V1 já foi aplicada em ambiente compartilhado. Qual próximo passo para adicionar email?",
+      "code": "-- V1__create_cliente.sql\nCREATE TABLE cliente (id BIGINT PRIMARY KEY, nome VARCHAR(80));",
+      "options": [
+        "Criar V2__add_email.sql com ALTER TABLE",
+        "Editar V1 e apagar seu checksum",
+        "Mudar apenas a classe Java",
+        "Renomear V1 para final.sql"
+      ],
+      "answer": 0,
+      "explanation": "Novas migrations preservam o histórico aplicado e levam a mesma alteração aos ambientes seguintes.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 42,
+      "topic": 8,
+      "prompt": "Qual arquivo segue a convenção padrão de migration versionada?",
+      "code": "",
+      "options": [
+        "V2_add_email.sql",
+        "2__add_email.sql",
+        "migration_V2.txt",
+        "V2__add_email.sql"
+      ],
+      "answer": 3,
+      "explanation": "São dois sublinhados entre versão e descrição, com prefixo V e extensão SQL.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 43,
+      "topic": 8,
+      "prompt": "Uma coluna foi adicionada só na entidade. Com esta configuração, o que falta?",
+      "code": "spring:\n  jpa:\n    hibernate:\n      ddl-auto: none\n  flyway:\n    enabled: true",
+      "options": [
+        "Adicionar @Service na entidade",
+        "Uma migration que altere o esquema",
+        "Trocar o DTO por record",
+        "Um tópico Kafka com o nome da coluna"
+      ],
+      "answer": 1,
+      "explanation": "ddl-auto: none não atualiza tabelas. A mudança estrutural deve ser aplicada por migration.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 44,
+      "topic": 8,
+      "prompt": "Após editar uma migration já aplicada, validate acusa checksum divergente. Qual interpretação é correta?",
+      "code": "",
+      "options": [
+        "O banco nunca foi criado",
+        "A conexão Redis expirou",
+        "O arquivo atual difere do histórico aplicado",
+        "O Flyway reaplicou automaticamente a migration com sucesso"
+      ],
+      "answer": 2,
+      "explanation": "Checksum ajuda a detectar alteração de migrations aplicadas. Investigue a diferença e preserve o histórico, em vez de mascará-la.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 45,
+      "topic": 8,
+      "prompt": "Qual ação aplica migrations pendentes?",
+      "code": "",
+      "options": [
+        "migrate",
+        "validate",
+        "Somente @Entity",
+        "Somente reiniciar Docker sem Flyway"
+      ],
+      "answer": 0,
+      "explanation": "migrate executa as migrations pendentes. validate verifica consistência, mas não substitui a aplicação.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 46,
+      "topic": 9,
+      "prompt": "Se a aplicação escuta em 8080 no contêiner, qual endereço o host usa?",
+      "code": "services:\n  api:\n    ports: [\"8085:8080\"]",
+      "options": [
+        "http://localhost:8080 obrigatoriamente",
+        "http://api:8085 no host sempre",
+        "http://localhost:8085",
+        "http://localhost:5432"
+      ],
+      "answer": 2,
+      "explanation": "O mapeamento é host:contêiner. A porta exposta no computador é 8085.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 47,
+      "topic": 9,
+      "prompt": "A API e db estão na mesma rede Compose. Por que a conexão abaixo falha se não há PostgreSQL dentro da API?",
+      "code": "# Variável da API\nDB_URL: jdbc:postgresql://localhost:5432/app\n\n# Outro serviço na mesma rede se chama db.",
+      "options": [
+        "Porque localhost aponta para o próprio contêiner da API",
+        "Porque PostgreSQL não funciona com Compose",
+        "Porque 5432 só pode ser usado no host",
+        "Porque o serviço precisa se chamar postgres obrigatoriamente"
+      ],
+      "answer": 0,
+      "explanation": "Use o host db e a porta interna 5432 para alcançar o serviço de banco na rede Compose.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 48,
+      "topic": 9,
+      "prompt": "O que falta se a API inicia antes de o banco aceitar conexões?",
+      "code": "services:\n  api:\n    depends_on:\n      - db",
+      "options": [
+        "Um segundo Dockerfile obrigatório",
+        "@Transactional no YAML",
+        "Trocar o volume por bind mount sempre",
+        "Estratégia de prontidão, como healthcheck e service_healthy"
+      ],
+      "answer": 3,
+      "explanation": "A forma simples de depends_on ordena o início, mas não aguarda prontidão do banco.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 49,
+      "topic": 9,
+      "prompt": "Qual instrução publica a porta no host?",
+      "code": "FROM eclipse-temurin:21-jre\nCOPY app.jar app.jar\nEXPOSE 8080\nENTRYPOINT [\"java\", \"-jar\", \"app.jar\"]",
+      "options": [
+        "EXPOSE já publica automaticamente",
+        "Nenhuma: é necessário mapear a porta ao executar",
+        "COPY publica a porta se o JAR for Spring",
+        "ENTRYPOINT publica todas as portas"
+      ],
+      "answer": 1,
+      "explanation": "EXPOSE documenta a porta. Use publicação no runtime, como -p ou ports no Compose.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 50,
+      "topic": 9,
+      "prompt": "Qual ação preserva dados do PostgreSQL durante recriação normal do contêiner?",
+      "code": "",
+      "options": [
+        "Guardar tudo só na camada gravável do contêiner",
+        "Executar down -v a cada reinício",
+        "Montar volume no diretório de dados",
+        "Trocar sempre o nome da imagem"
+      ],
+      "answer": 2,
+      "explanation": "Volumes têm ciclo de vida independente do contêiner. Remover explicitamente o volume apaga essa persistência.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 51,
+      "topic": 10,
+      "prompt": "Com cache habilitado e Redis configurado, duas chamadas externas usam id=5. A entrada permanece válida. Quantas vezes o método tende a consultar o banco?",
+      "code": "@Cacheable(value = \"produtos\", key = \"#id\")\npublic ProdutoDTO buscar(Long id) {\n  return consultarBanco(id);\n}",
+      "options": [
+        "Uma vez",
+        "Duas sempre",
+        "Zero na primeira chamada com cache vazio",
+        "Uma vez por anotação em cada classe"
+      ],
+      "answer": 0,
+      "explanation": "A primeira chamada preenche o cache. A segunda pode retornar o valor cacheado sem executar o método.",
+      "difficulty": "Intermediário",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 52,
+      "topic": 10,
+      "prompt": "O preço muda no banco, mas o cache não é atualizado nem invalidado. O TTL ainda não expirou. O que pode acontecer?",
+      "code": "",
+      "options": [
+        "Redis detecta a alteração automaticamente",
+        "A transação JPA apaga todas as chaves",
+        "O banco recusa o update por haver cache",
+        "Leituras retornam o preço antigo"
+      ],
+      "answer": 3,
+      "explanation": "TTL não sincroniza a fonte. Atualize ou invalide a entrada na alteração do dado.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 53,
+      "topic": 10,
+      "prompt": "Qual é o padrão representado?",
+      "code": "var valor = cache.get(chave);\nif (valor == null) {\n  valor = banco.buscar(id);\n  cache.set(chave, valor);\n}\nreturn valor;",
+      "options": [
+        "Event sourcing",
+        "Cache-aside",
+        "ManyToMany",
+        "Replicação síncrona de banco"
+      ],
+      "answer": 1,
+      "explanation": "A aplicação consulta o cache e recorre à fonte quando há ausência, preenchendo o cache depois.",
+      "difficulty": "Básico",
+      "kind": "Análise de código"
+    },
+    {
+      "id": 54,
+      "topic": 10,
+      "prompt": "Qual afirmação diferencia cache miss de indisponibilidade?",
+      "code": "",
+      "options": [
+        "Os dois são sempre tratados automaticamente da mesma forma",
+        "Cache miss significa necessariamente erro de rede",
+        "Cache miss é ausência; conexão falha exige tratamento de erro",
+        "Indisponibilidade garante retorno null em qualquer cliente"
+      ],
+      "answer": 2,
+      "explanation": "Um cliente pode lançar exceção quando Redis está indisponível. Fallback para a fonte precisa ser projetado explicitamente.",
+      "difficulty": "Intermediário",
+      "kind": "Conceito aplicado"
+    },
+    {
+      "id": 55,
+      "topic": 10,
+      "prompt": "Qual anotação remove uma entrada do Spring Cache?",
+      "code": "",
+      "options": [
+        "@CacheEvict",
+        "@Cacheable",
+        "@Column",
+        "@KafkaListener"
+      ],
+      "answer": 0,
+      "explanation": "@CacheEvict invalida entradas. @Cacheable pode reutilizar dados; @CachePut executa o método e atualiza o cache.",
+      "difficulty": "Básico",
+      "kind": "Conceito aplicado"
+    }
+  ],
+  "sources": [
+    {
+      "title": "Spring Framework · Injeção de dependência",
+      "url": "https://docs.spring.io/spring-framework/reference/core/beans/annotation-config/autowired.html"
+    },
+    {
+      "title": "Jakarta Persistence · Relacionamentos",
+      "url": "https://jakarta.ee/learn/docs/jakartaee-tutorial/current/persist/persistence-intro/persistence-intro.html"
+    },
+    {
+      "title": "Java · Records",
+      "url": "https://docs.oracle.com/en/java/javase/21/language/records.html"
+    },
+    {
+      "title": "Jakarta Validation · Constraints",
+      "url": "https://jakarta.ee/specifications/bean-validation/3.0/apidocs/jakarta/validation/constraints/package-summary.html"
+    },
+    {
+      "title": "Apache Kafka · Design",
+      "url": "https://kafka.apache.org/41/design/design/"
+    },
+    {
+      "title": "Flyway · Migrations",
+      "url": "https://documentation.red-gate.com/flyway/flyway-concepts/migrations/versioned-migrations"
+    },
+    {
+      "title": "Docker Compose",
+      "url": "https://docs.docker.com/compose/intro/features-uses/"
+    },
+    {
+      "title": "Redis · Hashes",
+      "url": "https://redis.io/docs/latest/develop/data-types/hashes/"
     }
   ]
 }
