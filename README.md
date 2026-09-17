@@ -7,7 +7,7 @@ Plataforma de estudo em português sobre os 11 assuntos da AV1. O foco está nos
 - **34 questões com trechos de código** para interpretar comportamento, saída ou erros.
 - Correção comentada e aproveitamento por assunto.
 - 55 flashcards com filtro por assunto e 11 módulos na biblioteca.
-- Ranking compartilhado de tentativas, persistido em PostgreSQL Neon quando configurado.
+- Ranking compartilhado de tentativas, persistido em PostgreSQL quando configurado.
 - Interface responsiva para computador e celular.
 
 ## Executar no computador
@@ -27,13 +27,27 @@ Siga [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md). O projeto usa Next.js com rotas de se
 
 ## Banco para o ranking
 
-Copie `.env.example` para `.env.local` e preencha `DATABASE_URL` com a conexão do seu PostgreSQL Neon. A variável deve permanecer somente no servidor.
+Copie `.env.example` para `.env.local` e preencha `DATABASE_URL` com a conexão do seu PostgreSQL. A variável deve permanecer somente no servidor.
 
 ```sh
 npm run db:setup
 ```
 
-O comando cria a tabela e o índice definidos em `database/001_initial.sql`. Também é possível executar esse arquivo no editor SQL do Neon. Reinicie o aplicativo depois de alterar as variáveis.
+O cliente usa o protocolo PostgreSQL padrão, compatível com banco local ou hospedado. Use a URL e os parâmetros TLS do seu provedor; não desative a verificação de certificados.
+
+O comando cria a tabela e o índice definidos em `database/001_initial.sql`. Também é possível executar esse arquivo no editor SQL do seu provedor. Reinicie o aplicativo depois de alterar as variáveis.
+
+## PostgreSQL local com Docker
+
+Copie `.env.example` para `.env.local`, escolha `POSTGRES_PASSWORD` e preencha `DATABASE_URL` conforme o exemplo. A porta local é 5433 para evitar conflito com outros bancos.
+
+```sh
+docker compose --env-file .env.local up -d --wait
+npm run db:setup
+npm run dev
+```
+
+Os dados ficam no volume `spring_lab_data` mesmo ao recriar o contêiner. Para parar sem apagar resultados, use `docker compose --env-file .env.local stop`. A Vercel não executa esse Compose: em produção, configure um PostgreSQL hospedado acessível por ela. `localhost` na Vercel não aponta para seu computador.
 
 ## Como funciona
 
@@ -61,7 +75,7 @@ npm run build
 npm start
 ```
 
-A compilação usa Webpack. Testes verificam sorteios com cobertura dos 11 assuntos, integridade do banco de questões, correção e rejeição de respostas inválidas. O fluxo completo de 25 questões foi conferido no navegador em modo treino. A conexão com o seu Neon deve ser validada depois da configuração, pois nenhuma credencial de banco foi fornecida.
+A compilação usa Webpack. Testes verificam sorteios com cobertura dos 11 assuntos, integridade do banco de questões, correção e rejeição de respostas inválidas. O fluxo completo de 25 questões foi conferido no navegador em modo treino. A integração com PostgreSQL local também foi testada: gravação de questões/respostas, correção, ranking, rejeição de segredo incorreto e reenvio sem alterar a nota. Com o servidor e o banco local ativos, execute `npm run test:db` para repetir essa verificação; somente a tentativa criada pelo teste será removida. A conexão de produção deve ser validada depois da configuração, pois nenhum banco hospedado foi fornecido.
 
 ## Editar questões
 

@@ -1,0 +1,20 @@
+name: spring-lab
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: spring_lab
+      POSTGRES_USER: spring_lab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em .env.local}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - spring_lab_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spring_lab -d spring_lab"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  spring_lab_data:

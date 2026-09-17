@@ -19,7 +19,7 @@ export async function POST(request:Request){
    const nickname=typeof p.nickname==='string'?p.nickname.trim():'';
    if(nickname.length<2||nickname.length>24||/[\u0000-\u001f]/.test(nickname))return json({error:'Use um apelido de 2 a 24 caracteres.'},400);
    const chosen=createExam(data.questions);const id=randomUUID(),secret=randomBytes(32).toString('hex');
-   if(ranked){const sql=database();await sql`INSERT INTO av1_attempts (id,secret_hash,nickname,bank_version,question_ids) VALUES (${id},${createHash('sha256').update(secret).digest('hex')},${nickname},${BANK_VERSION},${JSON.stringify(chosen.map(q=>q.id))}::jsonb)`;}
+   if(ranked){const sql=database();await sql`INSERT INTO av1_attempts (id,secret_hash,nickname,bank_version,question_ids) VALUES (${id},${createHash('sha256').update(secret).digest('hex')},${nickname},${BANK_VERSION},${sql.json(chosen.map(q=>q.id))})`;}
    return json({id,secret:ranked?secret:undefined,mode:ranked?'ranked':'practice',nickname,questions:chosen.map(q=>({id:q.id,topic:q.topic,prompt:q.prompt,code:q.code,options:q.options,difficulty:q.difficulty,kind:q.kind}))});
   }
   if(p.action!=='finish'||!validateAnswers(p.answers))return json({error:'Responda às 25 questões antes de finalizar.'},400);
@@ -35,7 +35,7 @@ export async function POST(request:Request){
   if(!row.finished_at&&Date.now()-new Date(row.started_at).getTime()>86400000)return json({error:'Tentativa expirada. Inicie outro simulado.'},410);
   const ids=row.question_ids as number[];
   if(!row.finished_at){const score=grade(data.questions,ids,p.answers).filter(q=>q.correct).length;
-   await sql`UPDATE av1_attempts SET finished_at=NOW(),score=${score},answers=${JSON.stringify(p.answers)}::jsonb WHERE id=${p.id}::uuid AND finished_at IS NULL`;
+   await sql`UPDATE av1_attempts SET finished_at=NOW(),score=${score},answers=${sql.json(p.answers)} WHERE id=${p.id}::uuid AND finished_at IS NULL`;
   }
   const final=(await sql`SELECT score,answers FROM av1_attempts WHERE id=${p.id}::uuid AND secret_hash=${hash}`)[0];
   return json({score:final.score,total:25,review:grade(data.questions,ids,final.answers as number[]),saved:true,mode:'ranked'});

@@ -10,9 +10,9 @@ Se usar Git, siga os comandos exibidos pelo GitHub para conectar a pasta ao seu 
 
 ## 2. Preparar o banco compartilhado
 
-Crie um PostgreSQL no Neon, diretamente ou pela integração Neon no Marketplace da Vercel. Copie a conexão disponibilizada pelo provedor.
+Crie um banco PostgreSQL em um servidor ou provedor acessível pela Vercel. O aplicativo usa o protocolo PostgreSQL padrão e não depende de Neon. Copie a URL de conexão e mantenha os parâmetros TLS indicados pelo provedor. Se houver pooler, use a conexão recomendada pelo provedor para aplicações serverless.
 
-No editor SQL do Neon, execute o conteúdo de:
+No editor SQL do provedor ou em um cliente PostgreSQL, execute o conteúdo de:
 
 ```text
 database/001_initial.sql
@@ -21,6 +21,8 @@ database/001_initial.sql
 Alternativa local: copie `.env.example` para `.env.local`, preencha `DATABASE_URL` e execute `npm ci` seguido de `npm run db:setup`. Faça isso antes de iniciar a primeira tentativa com ranking.
 
 Sem banco configurado, o site abre em modo treino. Se a variável existir mas a conexão ou a tabela estiver incorreta, o sistema mostra erro, em vez de fingir que salvou resultados.
+
+O arquivo `compose.yaml` serve para desenvolvimento local e mantém os dados em volume. Ele não roda dentro da Vercel. Não coloque `localhost` ou `127.0.0.1` na conexão de produção.
 
 ## 3. Importar na Vercel
 
@@ -35,7 +37,7 @@ Importe o repositório GitHub. Use estas configurações:
 | Output Directory | Padrão do Next.js; deixe sem alteração |
 | Node.js | 22.x |
 
-Em Environment Variables, adicione `DATABASE_URL` com a conexão Neon para o ambiente desejado. Não use o prefixo `NEXT_PUBLIC_`. O aplicativo também aceita `POSTGRES_URL` se esse for o nome criado pela integração; `DATABASE_URL` tem prioridade.
+Em Environment Variables, adicione `DATABASE_URL` com a conexão PostgreSQL para o ambiente desejado. Não use o prefixo `NEXT_PUBLIC_`. O aplicativo também aceita `POSTGRES_URL` se esse for o nome criado pela integração; `DATABASE_URL` tem prioridade.
 
 Se configurar o banco depois do primeiro deploy, faça um novo deploy para carregar a variável. Separe bancos/branches de Preview e Production caso queira evitar misturar testes com resultados da turma.
 
@@ -57,7 +59,7 @@ Confira o acesso em uma janela sem sessão: ela deve pedir autenticação ou neg
 4. Recarregue e confira que o resultado concluído permanece.
 5. Teste os flashcards e os 11 módulos também no celular.
 
-A versão local foi validada sem banco. A integração real com Neon depende da sua conexão e da execução do SQL inicial.
+A versão local foi validada com PostgreSQL real em Docker, incluindo a persistência de respostas e resultados. A conexão com o banco de produção depende da sua conexão e da execução do SQL inicial.
 
 ## Se aparecer algum problema
 
@@ -72,4 +74,4 @@ A versão local foi validada sem banco. A integração real com Neon depende da 
 - [Next.js na Vercel](https://vercel.com/docs/frameworks/full-stack/nextjs)
 - [PostgreSQL e integrações](https://vercel.com/docs/postgres)
 - [Deployment Protection](https://vercel.com/docs/deployment-protection)
-- [Neon serverless driver](https://neon.com/docs/serverless/serverless-driver)
+- [Cliente PostgreSQL usado no projeto](https://github.com/porsager/postgres)
